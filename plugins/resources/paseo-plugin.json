@@ -1,0 +1,8 @@
+{
+  "id": "resources",
+  "media": [],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  },
+  "name": "Resources"
+}
