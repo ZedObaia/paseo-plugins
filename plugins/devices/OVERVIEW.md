@@ -31,10 +31,10 @@ and a copy made for it is turned off; a simulator copy keeps its data until you 
 ## Security, data and installs
 
 Emulators started here run headless, with their control port bound to localhost and protected by
-a token. The iOS live view runs a serve-sim helper per simulator on localhost. The helper has no
-authentication and accepts requests from any web page, so while it runs a page open in a browser
-on that Mac could watch the simulator or tap on it. A helper stops within a minute after the last panel
-showing its simulator closes.
+a token. The iOS live view runs serve-sim in a helper process that listens only on a Unix socket in
+a folder only your user can open. It has no network port, so web pages and other machines can't
+reach it. The helper stops about 30 seconds after the last panel showing a simulator closes, and
+when the plugin stops.
 
 Frames and input travel between the host and your Paseo apps. What agents read through the device
 tools, including screenshots and screen text, is sent to the agent's model provider like any other

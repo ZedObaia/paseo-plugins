@@ -71,3 +71,19 @@ test("featured devices: on, held, owned, Android, and newest-iOS iPhones", () =>
   assert.deepEqual(main.map((x) => x.id).sort(), ["avd:pixel", "ios:held", "ios:new", "ios:on"]);
   assert.deepEqual(rest.map((x) => x.id).sort(), ["ios:ipad", "ios:old"]);
 });
+
+test("typing: US keyboard usages, shift around capitals and symbols", async () => {
+  const { keyEvents } = await import("../shared/keyboard");
+  assert.deepEqual(keyEvents("a1"), [
+    { type: "down", usage: 4 },
+    { type: "up", usage: 4 },
+    { type: "down", usage: 30 },
+    { type: "up", usage: 30 },
+  ]);
+  assert.deepEqual(
+    keyEvents("A?").map((e) => `${e.type}:${e.usage}`),
+    ["down:225", "down:4", "up:4", "up:225", "down:225", "down:56", "up:56", "up:225"],
+  );
+  assert.equal(keyEvents("hi there\r\n").length, 18);
+  assert.throws(() => keyEvents("é"), /can't type "é"/);
+});

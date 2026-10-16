@@ -33,7 +33,7 @@ function pluginDir(): string {
   throw new Error("The devices plugin directory is missing from the daemon config");
 }
 
-const PLUGIN_DIR = pluginDir();
+export const PLUGIN_DIR = pluginDir();
 
 /**
  * The Node that runs agent-device: this process's own binary. In the desktop app that's Paseo's

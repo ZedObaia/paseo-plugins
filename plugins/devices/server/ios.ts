@@ -1,18 +1,16 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import type WebSocketType from "ws";
 import type { Device } from "../shared/contracts";
+import { keyEvents } from "../shared/keyboard";
 import { run, sleep, waitFor } from "./exec";
 import type { Frame } from "./frames";
-import { ADDON_NODE, dependencyFile, pluginRequire } from "./paths";
+import { ADDON_NODE, PLUGIN_DIR, pluginRequire } from "./paths";
 
 const WebSocket = pluginRequire("ws") as typeof WebSocketType;
-const SERVE_SIM = dependencyFile("serve-sim", "dist/serve-sim.js");
-const serveSim = (args: string[], timeoutMs = 30_000) =>
-  run(ADDON_NODE, [SERVE_SIM, ...args], timeoutMs).catch((error: Error) => {
-    if (/ENOENT/.test(error.message))
-      throw new Error("The live view needs Node.js 20 or newer installed on this Mac");
-    throw error;
-  });
 const simctl = (args: string[], timeoutMs?: number) => run("xcrun", ["simctl", ...args], timeoutMs);
 
 export async function iosAvailability(): Promise<{ available: boolean; reason: string }> {
@@ -80,22 +78,79 @@ export async function deleteIos(udid: string): Promise<void> {
   await simctl(["delete", udid], 60_000);
 }
 
-// --- live view: one serve-sim helper per booted simulator, used while a panel polls it ---
+// --- live view: serve-sim's capture and input, in a helper that only this plugin can reach ---
 //
-// The helper listens on 127.0.0.1 without authentication and allows any web origin, so a page
-// open in this Mac's browser could watch the stream or send touches while it runs. Helpers are
-// stopped as soon as no panel has polled them for IDLE_MS.
+// The helper (server/ios-helper.mjs) serves every simulator's stream and input socket on a Unix
+// socket in a folder only this user can open; it has no TCP port, so web pages and other
+// machines can't reach it. It runs while a panel shows a simulator and stops IDLE_MS after the
+// last one closes, or with the plugin.
 
 const IDLE_MS = 30_000;
+const helperPath = (udid: string, endpoint: string) => `/.sim/helper/${encodeURIComponent(udid)}/${endpoint}`;
+
+interface Helper {
+  child: ChildProcess;
+  // in a new owner-only temp folder: Unix socket paths are limited to 104 bytes, too short for a
+  // deep PASEO_HOME
+  socket: string;
+}
+
+let helper: Promise<Helper> | null = null;
+
+function startHelper(): Promise<Helper> {
+  if (helper) return helper;
+  const dir = mkdtempSync(path.join(os.tmpdir(), "paseo-devices-"));
+  const socket = path.join(dir, "ios.sock");
+  const started = new Promise<Helper>((resolve, reject) => {
+    // stdin stays open: the helper exits when this process does
+    const child = spawn(ADDON_NODE, [path.join(PLUGIN_DIR, "server", "ios-helper.mjs"), socket], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => (stderr = (stderr + chunk.toString()).slice(-4_000)));
+    child.stdout.on(
+      "data",
+      (chunk: Buffer) => chunk.toString().includes("ready") && resolve({ child, socket }),
+    );
+    child.once("error", (error: NodeJS.ErrnoException) =>
+      reject(
+        error.code === "ENOENT"
+          ? new Error("The live view needs Node.js 20 or newer installed on this Mac")
+          : error,
+      ),
+    );
+    child.once("exit", (code) => {
+      rmSync(dir, { recursive: true, force: true });
+      if (helper === started) helper = null;
+      for (const pending of sessions.values()) void pending.then(forgetSession, () => {});
+      const reason = /^\w*Error\b.*$/m.exec(stderr)?.[0] ?? stderr.trim().split("\n").pop() ?? "";
+      reject(new Error(`The live view helper stopped (${code ?? "killed"}): ${reason}`));
+    });
+  });
+  helper = started;
+  started.catch(() => {
+    if (helper === started) helper = null;
+  });
+  return started;
+}
+
+function stopHelper(): void {
+  const running = helper;
+  helper = null;
+  void running?.then(
+    ({ child }) => child.kill(),
+    () => {},
+  );
+}
 
 interface Session {
   udid: string;
-  wsUrl: string;
+  socket: string;
   frame?: Frame;
   seq: number;
   lastUsed: number;
   closed: boolean;
-  // consecutive stream failures; the helper is presumed dead after a few
+  // consecutive stream failures; the simulator is presumed gone after a few
   failures: number;
   stream?: http.ClientRequest;
   ws?: Promise<WebSocketType>;
@@ -105,20 +160,21 @@ const sessions = new Map<string, Promise<Session>>();
 const SOI = Buffer.from([0xff, 0xd8]);
 const EOI = Buffer.from([0xff, 0xd9]);
 
-function readStream(s: Session, url: string): void {
+function readStream(s: Session): void {
   if (s.closed) return;
   let retried = false;
   const retry = () => {
     if (retried) return;
     retried = true;
-    // The helper exits with its simulator (or Simulator.app): forget it so the next call starts one.
+    // a simulator that shut down (or quit with Simulator.app) ends its stream: forget it after a
+    // few tries, so the next call starts over
     if (++s.failures >= 3) return void forgetSession(s);
-    setTimeout(() => readStream(s, url), 1_000);
+    setTimeout(() => readStream(s), 1_000);
   };
-  s.stream = http.get(url, (res) => {
-    // a helper that dies mid-stream only closes the response: no "end", no request error
+  s.stream = http.get({ socketPath: s.socket, path: helperPath(s.udid, "stream.mjpeg") }, (res) => {
+    // a stream cut off mid-way only closes the response: no "end", no request error
     res.on("close", retry);
-    // one that lost its simulator answers 404, which counts as a failure too
+    // a simulator that isn't booted answers 404, which counts as a failure too
     if (res.statusCode !== 200) return void res.resume();
     s.failures = 0;
     let pending = Buffer.alloc(0);
@@ -130,7 +186,7 @@ function readStream(s: Session, url: string): void {
         const end = start < 0 ? -1 : pending.indexOf(EOI, start + 2);
         if (end < 0) break;
         const image = pending.subarray(start, end + 2);
-        // the helper re-sends an unchanged screen; keeping its seq lets a polling panel skip it
+        // an unchanged screen keeps its seq, so a polling panel can skip it
         if (!s.frame?.image.equals(image)) s.frame = { seq: ++s.seq, image: Buffer.from(image) };
         pending = pending.subarray(end + 2);
       }
@@ -143,28 +199,14 @@ function readStream(s: Session, url: string): void {
 function session(udid: string): Promise<Session> {
   const existing = sessions.get(udid);
   if (existing) return existing.then((s) => ((s.lastUsed = Date.now()), s));
-  // The helper needs Simulator.app and launches it in front if it isn't running. Starting it
-  // hidden first (-j) keeps it off the screen; a window the user opened stays as it is.
+  // Capture needs Simulator.app; starting it hidden (-j) keeps it off the screen, and a window
+  // the user opened stays as it is.
   const created = run("open", ["-g", "-j", "-a", "Simulator"])
     .catch(() => "")
-    .then(() => serveSim(["--detach", "-q", udid], 60_000))
-    .then((out) => {
-      const info = JSON.parse(out.trim().split("\n").pop() ?? "{}") as {
-        streamUrl?: string;
-        url?: string;
-        wsUrl?: string;
-      };
-      const streamUrl = info.streamUrl ?? `${info.url}/stream.mjpeg`;
-      if (!info.wsUrl || !streamUrl.startsWith("http")) throw new Error("serve-sim returned no stream");
-      const s: Session = {
-        udid,
-        wsUrl: info.wsUrl,
-        seq: 0,
-        lastUsed: Date.now(),
-        closed: false,
-        failures: 0,
-      };
-      readStream(s, streamUrl);
+    .then(startHelper)
+    .then(({ socket }) => {
+      const s: Session = { udid, socket, seq: 0, lastUsed: Date.now(), closed: false, failures: 0 };
+      readStream(s);
       return s;
     });
   sessions.set(udid, created);
@@ -175,6 +217,10 @@ function session(udid: string): Promise<Session> {
 function forgetSession(s: Session): void {
   s.closed = true;
   s.stream?.destroy();
+  void s.ws?.then(
+    (ws) => ws.close(),
+    () => {},
+  );
   void sessions.get(s.udid)?.then(
     (current) => current === s && sessions.delete(s.udid),
     () => {}, // a newer session that failed to start is already removed by its own handler
@@ -182,9 +228,9 @@ function forgetSession(s: Session): void {
 }
 
 const isConnectionError = (error: unknown) =>
-  /ECONNREFUSED|ECONNRESET|socket hang up|closed|No serve-sim server/i.test(String(error));
+  /ECONNREFUSED|ENOENT|ECONNRESET|socket hang up|closed/i.test(String(error));
 
-/** Runs fn with the live session; if its helper is gone, starts a new helper and tries once more. */
+/** Runs fn with the live session; if the helper went away, starts it again and tries once more. */
 async function withSession<T>(udid: string, fn: (s: Session) => Promise<T>): Promise<T> {
   const s = await session(udid);
   try {
@@ -201,26 +247,23 @@ async function stopSession(udid: string): Promise<void> {
   if (!pending) return;
   sessions.delete(udid);
   const s = await pending.catch(() => null);
-  if (!s) return;
-  s.closed = true;
-  s.stream?.destroy();
-  (await s.ws?.catch(() => null))?.close();
-  await serveSim(["--kill", udid]).catch(() => {});
+  if (s) forgetSession(s);
 }
 
-/** Stops the helpers no panel is looking at. */
+/** Closes the sessions no panel is looking at, and the helper once none are left. */
 export function startIdleReaper(): () => Promise<void> {
   const timer = setInterval(async () => {
     for (const [udid, pending] of sessions) {
       const s = await pending.catch(() => null);
       if (s && Date.now() - s.lastUsed > IDLE_MS) await stopSession(udid);
     }
+    if (sessions.size === 0) stopHelper();
   }, 10_000);
   timer.unref();
-  // the helpers accept any web origin: make sure they're gone when the plugin stops
   return async () => {
     clearInterval(timer);
     await Promise.all([...sessions.keys()].map(stopSession));
+    stopHelper();
   };
 }
 
@@ -243,7 +286,7 @@ const onScreen = (udid: string, p: { x: number; y: number }) =>
 
 function socket(s: Session): Promise<WebSocketType> {
   s.ws ??= new Promise<WebSocketType>((resolve, reject) => {
-    const ws = new WebSocket(s.wsUrl);
+    const ws = new WebSocket(`ws+unix://${s.socket}:${helperPath(s.udid, "ws")}`);
     ws.once("open", () => resolve(ws));
     ws.once("error", (error) => ((s.ws = undefined), reject(error)));
     ws.once("close", () => (s.ws = undefined));
@@ -251,9 +294,17 @@ function socket(s: Session): Promise<WebSocketType> {
   return s.ws;
 }
 
-// serve-sim's control socket: tag 0x03, then the touch as JSON with x, y in 0..1
+// serve-sim's input socket: a tag byte, then the message as JSON
+const TOUCH = 3;
+const BUTTON = 4;
+const KEY = 6;
+const ORIENTATION = 7;
+const send = (ws: WebSocketType, tag: number, message: object) =>
+  ws.send(Buffer.concat([Buffer.from([tag]), Buffer.from(JSON.stringify(message))]));
+
+// touches are in 0..1 of the portrait screen
 const touch = (ws: WebSocketType, type: "begin" | "move" | "end", x: number, y: number) =>
-  ws.send(Buffer.concat([Buffer.from([0x03]), Buffer.from(JSON.stringify({ type, x, y }))]));
+  send(ws, TOUCH, { type, x, y });
 
 export async function iosTap(udid: string, x: number, y: number, holdMs: number): Promise<void> {
   const at = onScreen(udid, { x, y });
@@ -286,21 +337,27 @@ export async function iosSwipe(
   });
 }
 
-// The CLI commands below talk to the running helper, so they go through withSession too.
-
 export async function iosText(udid: string, text: string): Promise<void> {
-  await withSession(udid, () => serveSim(["type", "-d", udid, "--", text]));
+  const events = keyEvents(text);
+  await withSession(udid, async (s) => {
+    const ws = await socket(s);
+    for (const event of events) {
+      send(ws, KEY, event);
+      await sleep(4);
+    }
+  });
 }
 
 export async function iosButton(udid: string, button: string): Promise<void> {
-  const name = { home: "home", lock: "lock" }[button];
-  if (!name) throw new Error(`iOS simulators have no ${button} button`);
-  await withSession(udid, () => serveSim(["button", name, "-d", udid]));
+  if (button !== "home" && button !== "lock") throw new Error(`iOS simulators have no ${button} button`);
+  await withSession(udid, async (s) => send(await socket(s), BUTTON, { button }));
 }
 
 export async function iosRotate(udid: string, orientation: "portrait" | "landscape"): Promise<void> {
-  await withSession(udid, () =>
-    serveSim(["rotate", orientation === "portrait" ? "portrait" : "landscape_left", "-d", udid]),
+  await withSession(udid, async (s) =>
+    send(await socket(s), ORIENTATION, {
+      orientation: orientation === "portrait" ? "portrait" : "landscape_left",
+    }),
   );
   if (orientation === "landscape") landscape.add(udid);
   else landscape.delete(udid);
