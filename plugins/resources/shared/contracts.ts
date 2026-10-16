@@ -44,7 +44,8 @@ const docker = z.discriminatedUnion("available", [
     containers: usage,
     volumes: usage,
     buildCache: usage,
-    danglingImages: z.object({ count: z.number().int(), sizeBytes: bytes }),
+    // untagged images; no size: `docker images` sizes count shared layers once per image
+    danglingImages: z.number().int(),
     // anonymous volumes no container uses: what `docker volume prune` removes
     danglingVolumes: z.number().int(),
     containerList: z.array(container),

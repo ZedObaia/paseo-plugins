@@ -10,11 +10,12 @@ type Colors = PluginTheme["colors"];
 export const level = (c: Colors, value: number) =>
   value >= 0.9 ? c.statusDanger : value >= 0.75 ? c.statusWarning : c.accent;
 
-export function Meter({ theme, value }: { theme: PluginTheme; value: number }) {
+/** neutral: a share of something (e.g. reclaimable), not a load that can run out. */
+export function Meter({ theme, value, neutral }: { theme: PluginTheme; value: number; neutral?: boolean }) {
   return (
     <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surface2, overflow: "hidden" }}>
       <View
-        style={{ height: 6, width: `${Math.round(value * 100)}%`, backgroundColor: level(theme.colors, value) }}
+        style={{ height: 6, width: `${Math.round(value * 100)}%`, backgroundColor: neutral ? theme.colors.accent : level(theme.colors, value) }}
       />
     </View>
   );

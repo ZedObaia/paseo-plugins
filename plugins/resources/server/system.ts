@@ -9,7 +9,7 @@ let lastCpuPct: number | null = null;
 /** Samples overall CPU use every 2 s so a snapshot never waits for a second reading. */
 export function startCpuSampler(): () => void {
   let previous = os.cpus();
-  const timer = setInterval(() => {
+  const tick = () => {
     const current = os.cpus();
     let busy = 0;
     let total = 0;
@@ -24,9 +24,15 @@ export function startCpuSampler(): () => void {
     });
     previous = current;
     if (total > 0) lastCpuPct = (busy / total) * 100;
-  }, 2_000);
+  };
+  const first = setTimeout(tick, 1_000); // a first value soon after (re)start
+  const timer = setInterval(tick, 2_000);
+  first.unref();
   timer.unref();
-  return () => clearInterval(timer);
+  return () => {
+    clearTimeout(first);
+    clearInterval(timer);
+  };
 }
 
 async function meminfo(): Promise<Record<string, number>> {
@@ -101,18 +107,19 @@ async function disks(): Promise<Snapshot["disks"]> {
 }
 
 async function processes(): Promise<Pick<Snapshot, "topCpu" | "topMemory">> {
-  const text = await run("ps", ["-axo", "pid=,pcpu=,pmem=,rss=,user=,comm="]);
+  const text = await run("ps", ["-axo", "pid=,ppid=,pcpu=,pmem=,rss=,user=,comm="]);
   const all: ProcessInfo[] = [];
   for (const line of text.split("\n")) {
-    const match = /^\s*(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(.+)$/.exec(line);
-    if (!match) continue;
+    const match = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(.+)$/.exec(line);
+    // skip what this plugin itself spawned (this very `ps`, docker CLI calls)
+    if (!match || Number(match[2]) === process.pid) continue;
     all.push({
       pid: Number(match[1]),
-      cpuPct: Number(match[2]),
-      memPct: Number(match[3]),
-      rssBytes: Number(match[4]) * 1024,
-      user: match[5],
-      name: path.basename(match[6].trim()),
+      cpuPct: Number(match[3]),
+      memPct: Number(match[4]),
+      rssBytes: Number(match[5]) * 1024,
+      user: match[6],
+      name: path.basename(match[7].trim()),
     });
   }
   const top = (key: "cpuPct" | "rssBytes") => [...all].sort((a, b) => b[key] - a[key]).slice(0, 12);

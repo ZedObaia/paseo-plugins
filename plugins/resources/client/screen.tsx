@@ -56,7 +56,7 @@ export function ResourcesScreen({ theme, layout }: PluginScreenProps) {
         {query.error ? <Text style={{ color: c.statusDanger }}>Refresh failed</Text> : null}
       </View>
       <SystemCards theme={theme} s={s} />
-      <Processes theme={theme} s={s} ask={ask} />
+      <Processes theme={theme} compact={layout.compact} s={s} ask={ask} />
       {s.docker.available ? (
         <DockerSection theme={theme} d={s.docker} ask={ask} />
       ) : (
@@ -69,13 +69,27 @@ export function ResourcesScreen({ theme, layout }: PluginScreenProps) {
   );
 }
 
-function Metric({ theme, label, value, detail, fill }: { theme: PluginTheme; label: string; value: string; detail: string; fill: number }) {
+function Metric({
+  theme,
+  label,
+  value,
+  detail,
+  fill,
+  neutral,
+}: {
+  theme: PluginTheme;
+  label: string;
+  value: string;
+  detail: string;
+  fill: number;
+  neutral?: boolean;
+}) {
   const c = theme.colors;
   return (
     <Card theme={theme} flex>
       <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{label}</Text>
       <Text style={{ color: c.foreground, fontSize: 22, fontWeight: "600" }}>{value}</Text>
-      <Meter theme={theme} value={fill} />
+      <Meter theme={theme} value={fill} neutral={neutral} />
       <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
         {detail}
       </Text>
@@ -84,14 +98,14 @@ function Metric({ theme, label, value, detail, fill }: { theme: PluginTheme; lab
 }
 
 function SystemCards({ theme, s }: { theme: PluginTheme; s: Snapshot }) {
-  const load = s.load.map((l) => l.toFixed(2)).join(" · ");
+  const load = s.load.map((l) => l.toFixed(1)).join(" · ");
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
       <Metric
         theme={theme}
-        label="CPU"
+        label={`CPU · ${s.host.cpuCount} cores`}
         value={s.cpuPct === null ? "—" : pct(s.cpuPct)}
-        detail={`load ${load} · ${s.host.cpuCount} cores`}
+        detail={`load ${load}`}
         fill={(s.cpuPct ?? 0) / 100}
       />
       <Metric
@@ -154,7 +168,7 @@ function List({ theme, children }: { theme: PluginTheme; children: ReactNode }) 
   );
 }
 
-function Processes({ theme, s, ask }: { theme: PluginTheme; s: Snapshot; ask: Ask }) {
+function Processes({ theme, compact, s, ask }: { theme: PluginTheme; compact: boolean; s: Snapshot; ask: Ask }) {
   const [by, setBy] = useState<"cpu" | "memory">("cpu");
   const signal = useRpc(signalProcessRpc);
   const c = theme.colors;
@@ -185,7 +199,9 @@ function Processes({ theme, s, ask }: { theme: PluginTheme; s: Snapshot; ask: As
             <Text style={{ color: c.foreground, flex: 1 }} numberOfLines={1}>
               {p.name}
             </Text>
-            <Text style={{ color: c.foregroundMuted, fontSize: 12, width: 64, textAlign: "right" }}>{p.pid}</Text>
+            {compact ? null : (
+              <Text style={{ color: c.foregroundMuted, fontSize: 12, width: 64, textAlign: "right" }}>{p.pid}</Text>
+            )}
             <Text style={{ color: c.foreground, width: 56, textAlign: "right" }}>{pct(p.cpuPct)}</Text>
             <Text style={{ color: c.foreground, width: 72, textAlign: "right" }}>{bytes(p.rssBytes)}</Text>
           </Row>
@@ -223,6 +239,7 @@ function DockerSection({ theme, d, ask }: { theme: PluginTheme; d: Docker; ask: 
             value={bytes(u.sizeBytes)}
             detail={`${bytes(u.reclaimableBytes)} reclaimable`}
             fill={ratio(u.reclaimableBytes, u.sizeBytes)}
+            neutral
           />
         ))}
       </View>
@@ -235,8 +252,8 @@ function DockerSection({ theme, d, ask }: { theme: PluginTheme; d: Docker; ask: 
         />
         <Button
           theme={theme}
-          label={`Dangling images (${d.danglingImages.count} · ${bytes(d.danglingImages.sizeBytes)})`}
-          disabled={!d.danglingImages.count}
+          label={`Dangling images (${d.danglingImages})`}
+          disabled={!d.danglingImages}
           onPress={() => prune("Delete dangling images", "Deletes untagged images no container uses.", "images")}
         />
         <Button

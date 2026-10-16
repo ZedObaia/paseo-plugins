@@ -27,10 +27,10 @@ export async function dockerSnapshot(): Promise<Snapshot["docker"]> {
     return { available: false, reason: /ENOENT/.test(reason) ? "Docker isn't installed" : reason };
   }
 
-  const [dfText, psText, imagesText, danglingVolumesText, volumesText] = await Promise.all([
+  const [dfText, psText, danglingImagesText, danglingVolumesText, volumesText] = await Promise.all([
     docker(["system", "df", "--format", "{{json .}}"]),
     docker(["ps", "-a", "--format", "{{json .}}"]),
-    docker(["images", "-f", "dangling=true", "--format", "{{.Size}}"]),
+    docker(["images", "-q", "-f", "dangling=true"]),
     docker(["volume", "ls", "-q", "-f", "dangling=true"]),
     docker(["volume", "ls", "--format", "{{json .}}"]),
   ]);
@@ -93,7 +93,6 @@ export async function dockerSnapshot(): Promise<Snapshot["docker"]> {
   }
   for (const entry of projects.values()) entry.stale = entry.workingDir !== null && !live.has(entry.name);
 
-  const danglingSizes = imagesText.split("\n").filter(Boolean);
   return {
     available: true,
     version,
@@ -101,7 +100,7 @@ export async function dockerSnapshot(): Promise<Snapshot["docker"]> {
     containers: usage("Containers"),
     volumes: usage("Local Volumes"),
     buildCache: usage("Build Cache"),
-    danglingImages: { count: danglingSizes.length, sizeBytes: danglingSizes.reduce((sum, s) => sum + parseSize(s), 0) },
+    danglingImages: danglingImagesText.split("\n").filter(Boolean).length,
     // `volume prune` removes only anonymous volumes (64-hex names); unused named ones belong to
     // stopped compose stacks and show under their project instead.
     danglingVolumes: danglingVolumesText.split("\n").filter((name) => /^[0-9a-f]{64}$/.test(name)).length,
