@@ -316,7 +316,7 @@ function ContainerRow({ theme, x, ask, indent }: { theme: PluginTheme; x: Contai
   const action = useRpc(dockerActionRpc);
   const c = theme.colors;
   const up = x.state === "running";
-  const run = (a: "start" | "stop" | "restart" | "remove") => () => action({ kind: "container", action: a, id: x.id });
+  const run = (a: "start" | "stop" | "restart" | "remove") => () => action({ kind: "container", action: a, id: x.name });
   const open = () =>
     ask({
       title: x.name,

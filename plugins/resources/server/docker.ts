@@ -124,7 +124,7 @@ export async function dockerAction(input: RpcInput<typeof dockerActionRpc>): Pro
   switch (input.kind) {
     case "container":
       await docker(input.action === "remove" ? ["rm", "-f", input.id] : [input.action, input.id], 60_000);
-      return { message: `${DONE[input.action]} ${input.id.slice(0, 12)}` };
+      return { message: `${DONE[input.action]} ${input.id}` };
     case "project": {
       // One call per object: Docker Desktop has answered batch removals with 404s.
       const containers = await ids("ps", input.project, input.action === "remove");
