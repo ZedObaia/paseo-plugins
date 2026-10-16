@@ -1,20 +1,16 @@
 {
-  "name": "resources",
+  "name": "paseo-plugin-resources",
+  "version": "0.1.0",
+  "description": "CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZedObaia/paseo-plugins.git",
+    "directory": "plugins/resources"
+  },
   "private": true,
-  "version": "0.0.0",
-  "files": [
-    "paseo-plugin.json",
-    "OVERVIEW.md",
-    "index.client.ts",
-    "index.client.tsx",
-    "index.server.ts",
-    "index.server.tsx",
-    "client/",
-    "server/",
-    "shared/"
-  ],
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
     "test": "tsx --test server/*.test.ts"
   },
   "devDependencies": {
@@ -24,8 +20,8 @@
     "@types/react": "~19.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "tsx": "^4.20.0",
     "typescript": "^5.9.3",
-    "zod": "^4.4.3",
-    "tsx": "^4.20.0"
+    "zod": "^4.4.3"
   }
 }

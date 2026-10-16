@@ -1,6 +1,10 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
+/** The background sampler's period and how many samples the charts keep (10 minutes). */
+export const SAMPLE_SECONDS = 5;
+export const HISTORY_SAMPLES = 120;
+
 const bytes = z.number().nonnegative();
 
 const processInfo = z.object({
@@ -8,17 +12,15 @@ const processInfo = z.object({
   name: z.string(),
   user: z.string(),
   cpuPct: z.number(),
-  memPct: z.number(),
-  // macOS: physical footprint including compressed memory (what Activity Monitor shows);
-  // Linux: resident memory
+  // macOS: footprint including compressed memory, as in Activity Monitor; Linux: resident memory
   memBytes: bytes,
 });
 
-// processes grouped by app ("Google Chrome" for all its helpers, "tsserver" for every node tsserver)
-const app = z.object({ name: z.string(), count: z.number().int(), memBytes: bytes, cpuPct: z.number() });
+// processes grouped by app: "Google Chrome" for all its helpers, "tsserver" for every tsserver
+const app = z.object({ name: z.string(), count: z.number().int(), memBytes: bytes });
 
-// one background sample every 5 s, the last 10 minutes; mem and swap are used fractions 0..1
-const sample = z.object({ t: z.number(), cpu: z.number(), mem: z.number(), swap: z.number() });
+// one sample per SAMPLE_SECONDS, oldest first; each value is a used fraction 0..1
+const sample = z.object({ cpu: z.number(), mem: z.number(), swap: z.number() });
 
 const container = z.object({
   id: z.string(),
@@ -36,12 +38,13 @@ const container = z.object({
 const project = z.object({
   name: z.string(),
   workingDir: z.string().nullable(),
-  // Its containers were started from a directory that no longer exists (e.g. a deleted worktree).
+  // every container was started from a directory that no longer exists, e.g. a deleted worktree
   stale: z.boolean(),
   volumes: z.number().int(),
 });
 
-const usage = z.object({ count: z.number().int(), sizeBytes: bytes, reclaimableBytes: bytes });
+// `docker system df`: reclaimable = not used by any container
+const usage = z.object({ sizeBytes: bytes, reclaimableBytes: bytes });
 
 const docker = z.discriminatedUnion("available", [
   z.object({ available: z.literal(false), reason: z.string() }),
@@ -52,31 +55,33 @@ const docker = z.discriminatedUnion("available", [
     containers: usage,
     volumes: usage,
     buildCache: usage,
-    // untagged images; no size: `docker images` sizes count shared layers once per image
+    // untagged images; no size, since `docker images` counts shared layers once per image
     danglingImages: z.number().int(),
-    // anonymous volumes no container uses: what `docker volume prune` removes
-    danglingVolumes: z.number().int(),
+    // unnamed volumes no container uses
+    anonymousVolumes: z.number().int(),
     containerList: z.array(container),
     projects: z.array(project),
   }),
 ]);
 
-export const snapshotSchema = z.object({
+const snapshotSchema = z.object({
+  // when the host numbers were collected; they're served from a cache refreshed in the background
   takenAt: z.number(),
   host: z.object({
     hostname: z.string(),
     platform: z.string(),
     arch: z.string(),
     uptimeSec: z.number(),
-    cpuModel: z.string(),
     cpuCount: z.number().int(),
   }),
   // null until the sampler has two readings to compare
   cpuPct: z.number().nullable(),
+  // Linux only: CPU time the hypervisor gave to other guests (a noisy neighbour on a VPS)
+  stealPct: z.number().nullable(),
   load: z.tuple([z.number(), z.number(), z.number()]),
   memory: z.object({ totalBytes: bytes, usedBytes: bytes }),
   swap: z.object({ totalBytes: bytes, usedBytes: bytes }).nullable(),
-  disks: z.array(z.object({ mount: z.string(), totalBytes: bytes, usedBytes: bytes })),
+  disks: z.array(z.object({ mount: z.string(), totalBytes: bytes, usedBytes: bytes, freeBytes: bytes })),
   topCpu: z.array(processInfo),
   topMemory: z.array(processInfo),
   apps: z.array(app),
@@ -91,26 +96,35 @@ export type Sample = z.infer<typeof sample>;
 export type Container = z.infer<typeof container>;
 export type DockerProject = z.infer<typeof project>;
 
+/** CPU and memory only, from the background sampler: cheap enough for the sidebar to poll. */
+export const summaryRpc = defineRpc({
+  name: "resources.summary",
+  input: z.object({}),
+  output: z.object({ cpuPct: z.number().nullable(), memUsedBytes: bytes, memTotalBytes: bytes }),
+});
+
 export const snapshotRpc = defineRpc({
   name: "resources.snapshot",
   input: z.object({}),
   output: snapshotSchema,
 });
 
-// Docker ids, names and compose project names: no shell is involved, but keep them boring anyway.
+// Container names and Compose project names go to the docker CLI as arguments. The leading
+// character can't be "-", so a name can never be read as an option.
 const ref = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
 
-export const pruneTargets = ["containers", "images", "volumes", "build-cache", "networks"] as const;
+const pruneTargets = ["containers", "images", "volumes", "build-cache", "networks"] as const;
+export type PruneTarget = (typeof pruneTargets)[number];
 
 export const dockerActionRpc = defineRpc({
   name: "resources.docker",
   input: z.discriminatedUnion("kind", [
     z.object({
-      kind: z.literal("container"),
+      kind: z.literal("containers"),
       action: z.enum(["start", "stop", "restart", "remove"]),
-      id: ref,
+      names: z.array(ref).min(1).max(500),
     }),
-    // remove = its containers, volumes and networks (the data is gone)
+    // remove = its containers, volumes (the data) and networks
     z.object({ kind: z.literal("project"), action: z.enum(["stop", "remove"]), project: ref }),
     z.object({ kind: z.literal("prune"), target: z.enum(pruneTargets) }),
   ]),
