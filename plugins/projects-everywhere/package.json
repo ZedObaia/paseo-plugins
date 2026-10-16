@@ -14,7 +14,6 @@
     "test": "tsx --test test/*.test.ts"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.11.4",
     "@getpaseo/plugin": "0.11.4",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^22.20.5",

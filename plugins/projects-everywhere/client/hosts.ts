@@ -1,4 +1,3 @@
-import type { PaseoApi } from "@getpaseo/client";
 import { getPaseoClient } from "@getpaseo/plugin/client";
 import { CLONEABLE, type HostProject, type Target } from "./model";
 
@@ -40,6 +39,8 @@ export async function addProject(
   await paseo.workspaces.open(target.path);
   return "cloned";
 }
+
+type PaseoApi = ReturnType<typeof getPaseoClient>;
 
 const EXIT = /__PROJECTS_EVERYWHERE_EXIT_(\d+)__/;
 
