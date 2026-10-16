@@ -1,11 +1,16 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-export const platformSchema = z.enum(["ios", "android"]);
-export type Platform = z.infer<typeof platformSchema>;
+const platformSchema = z.enum(["ios", "android"]);
 
-/** "ios:<udid>" or "android:<adb serial>" (an AVD that isn't running is "avd:<name>"). */
-const deviceId = z.string().regex(/^(ios|android|avd):[A-Za-z0-9_.:-]{1,128}$/);
+/**
+ * "ios:<udid>" or "android:<adb serial>" (an AVD that isn't running is "avd:<name>"). The part
+ * after the prefix goes to simctl, adb and serve-sim as an argument, so it can't start with "-".
+ */
+export const deviceId = z.string().regex(/^(ios|android|avd):[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/);
+
+/** A touch held this long is a long press, on both platforms. */
+export const LONG_PRESS_MS = 450;
 
 const device = z.object({
   id: deviceId,
@@ -41,7 +46,11 @@ export const listRpc = defineRpc({
   }),
 });
 
-const workspace = z.object({ workspaceId: z.string().min(1), workspaceName: z.string(), directory: z.string().min(1) });
+const workspace = z.object({
+  workspaceId: z.string().min(1),
+  workspaceName: z.string(),
+  directory: z.string().min(1),
+});
 
 /** Gives a device to a workspace (deviceId null: release). Refuses a device another workspace holds unless takeOver. */
 export const assignRpc = defineRpc({
@@ -65,9 +74,19 @@ export const powerRpc = defineRpc({
 
 export const frameRpc = defineRpc({
   name: "devices.frame",
-  input: z.object({ deviceId, maxWidth: z.number().int().min(120).max(1600), since: z.number().int().default(-1) }),
+  input: z.object({
+    deviceId,
+    maxWidth: z.number().int().min(120).max(1600),
+    since: z.number().int().default(-1),
+  }),
   output: z.discriminatedUnion("status", [
-    z.object({ status: z.literal("frame"), seq: z.number().int(), jpeg: z.string(), width: z.number(), height: z.number() }),
+    z.object({
+      status: z.literal("frame"),
+      seq: z.number().int(),
+      jpeg: z.string(),
+      width: z.number(),
+      height: z.number(),
+    }),
     // nothing newer than `since`
     z.object({ status: z.literal("same"), seq: z.number().int() }),
     z.object({ status: z.literal("unavailable"), reason: z.string() }),
@@ -82,9 +101,17 @@ export const inputRpc = defineRpc({
     deviceId,
     input: z.discriminatedUnion("kind", [
       point.extend({ kind: z.literal("tap"), holdMs: z.number().int().min(0).max(5000).default(60) }),
-      z.object({ kind: z.literal("swipe"), from: point, to: point, durationMs: z.number().int().min(50).max(5000) }),
+      z.object({
+        kind: z.literal("swipe"),
+        from: point,
+        to: point,
+        durationMs: z.number().int().min(50).max(5000),
+      }),
       z.object({ kind: z.literal("text"), text: z.string().min(1).max(2000) }),
-      z.object({ kind: z.literal("button"), button: z.enum(["home", "back", "lock", "volumeUp", "volumeDown", "appSwitch"]) }),
+      z.object({
+        kind: z.literal("button"),
+        button: z.enum(["home", "back", "lock", "volumeUp", "volumeDown", "appSwitch"]),
+      }),
       z.object({ kind: z.literal("rotate"), orientation: z.enum(["portrait", "landscape"]) }),
     ]),
   }),

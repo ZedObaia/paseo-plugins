@@ -4,22 +4,27 @@ import { Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-nati
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { inputRpc, type Assignment, type Device } from "../shared/contracts";
-import { canDuplicate, stateLabel, useAction, useDeviceRpcs, useDevices } from "./data";
 import { splitDevices } from "../shared/select";
+import { canDuplicate, canTurnOff, canTurnOn, onFirst, useAction, useDeviceRpcs, useDevices } from "./data";
 import { LiveScreen } from "./live";
-import { Button, Card, IconButton, Pill } from "./ui";
+import { Button, Card, DeviceRow, IconButton, StatusLine } from "./ui";
 
 type Workspace = { workspaceId: string; workspaceName: string; directory: string };
 
-export function DevicePanel({ theme, layout, workspaceId }: PluginWorkspacePanelProps) {
+export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspacePanelProps) {
   const ws = useWorkspace(workspaceId, (w) => ({ name: w.title ?? w.name, directory: w.directory }));
-  const devices = useDevices();
+  const devices = useDevices(host.id);
   const [picking, setPicking] = useState(false);
+  const [landscape, setLandscape] = useState(false);
   const c = theme.colors;
   if (!ws || !devices.data) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.surface0 }}>
-        {devices.error ? <Text style={{ color: c.statusDanger }}>{String(devices.error)}</Text> : <ActivityIndicator color={c.foregroundMuted} />}
+        {devices.error ? (
+          <Text style={{ color: c.statusDanger }}>{String(devices.error)}</Text>
+        ) : (
+          <ActivityIndicator color={c.foregroundMuted} />
+        )}
       </View>
     );
   }
@@ -29,6 +34,7 @@ export function DevicePanel({ theme, layout, workspaceId }: PluginWorkspacePanel
   const picker = (
     <DevicePicker
       theme={theme}
+      hostId={host.id}
       workspace={workspace}
       devices={devices.data.devices}
       assignments={devices.data.assignments}
@@ -41,13 +47,21 @@ export function DevicePanel({ theme, layout, workspaceId }: PluginWorkspacePanel
     <View style={{ flex: 1, backgroundColor: c.surface0, padding: layout.compact ? 8 : 12, gap: 8 }}>
       {device ? (
         <>
-          <Toolbar theme={theme} device={device} workspace={workspace} onChange={() => setPicking(true)} />
+          <Toolbar
+            theme={theme}
+            hostId={host.id}
+            device={device}
+            workspace={workspace}
+            landscape={landscape}
+            onChange={() => setPicking(true)}
+          />
           {device.state === "booted" ? (
-            <LiveScreen theme={theme} deviceId={device.id} />
+            // keyed: a new device starts with an empty picture, not taps on the old one's
+            <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={setLandscape} />
           ) : (
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <Text style={{ color: c.foregroundMuted }}>{device.name} is {stateLabel(device)}</Text>
-              {device.state === "shutdown" ? <BootButton theme={theme} device={device} /> : <ActivityIndicator color={c.foregroundMuted} />}
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 16 }}>
+              {canTurnOn(device) ? <BootButton theme={theme} hostId={host.id} device={device} /> : null}
+              {device.state === "booting" ? <ActivityIndicator color={c.foregroundMuted} /> : null}
             </View>
           )}
           <Modal title="Device for this workspace" open={picking} onOpenChange={setPicking}>
@@ -56,10 +70,12 @@ export function DevicePanel({ theme, layout, workspaceId }: PluginWorkspacePanel
         </>
       ) : (
         <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 24 }}>
-          <Text style={{ color: c.foreground, fontSize: 16, fontWeight: "600" }}>Pick a device for {ws.name}</Text>
+          <Text style={{ color: c.foreground, fontSize: 16, fontWeight: "600" }}>
+            Pick a device for {ws.name}
+          </Text>
           <Text style={{ color: c.foregroundMuted }}>
-            It stays with this workspace: other workspaces can't take it without asking, and agents you start here get tools to
-            drive it.
+            It stays with this workspace: other workspaces can't take it without asking, and agents you start
+            here get tools to drive it.
           </Text>
           {picker}
         </ScrollView>
@@ -68,31 +84,66 @@ export function DevicePanel({ theme, layout, workspaceId }: PluginWorkspacePanel
   );
 }
 
-function BootButton({ theme, device }: { theme: PluginTheme; device: Device }) {
+function BootButton({ theme, hostId, device }: { theme: PluginTheme; hostId: string; device: Device }) {
   const { power } = useDeviceRpcs();
-  const { busy, perform } = useAction();
-  return <Button theme={theme} primary icon="Power" label="Turn on" disabled={busy} onPress={() => void perform(() => power({ deviceId: device.id, action: "boot" }))} />;
+  const { busy, perform } = useAction(hostId);
+  return (
+    <Button
+      theme={theme}
+      primary
+      icon="Power"
+      label="Turn on"
+      disabled={busy}
+      onPress={() => void perform(() => power({ deviceId: device.id, action: "boot" }))}
+    />
+  );
 }
 
-function Toolbar({ theme, device, workspace, onChange }: { theme: PluginTheme; device: Device; workspace: Workspace; onChange(): void }) {
+function Toolbar({
+  theme,
+  hostId,
+  device,
+  workspace,
+  landscape,
+  onChange,
+}: {
+  theme: PluginTheme;
+  hostId: string;
+  device: Device;
+  workspace: Workspace;
+  // from the last picture, so it is right after a remount too
+  landscape: boolean;
+  onChange(): void;
+}) {
   const { power, assign } = useDeviceRpcs();
   const input = useRpc(inputRpc);
-  const { busy, perform } = useAction();
+  const { busy, perform } = useAction(hostId);
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState("");
-  const [landscape, setLandscape] = useState(false);
   const c = theme.colors;
   const on = device.state === "booted";
-  const key = (button: "home" | "back" | "appSwitch") => void perform(() => input({ deviceId: device.id, input: { kind: "button", button } }).then(() => ({ message: "" })), true);
-  const rotate = () => {
-    const orientation = landscape ? "portrait" : "landscape";
-    setLandscape(!landscape);
-    void perform(() => input({ deviceId: device.id, input: { kind: "rotate", orientation } }).then(() => ({ message: "" })), true);
-  };
+  const key = (button: "home" | "back" | "appSwitch") =>
+    void perform(
+      () => input({ deviceId: device.id, input: { kind: "button", button } }).then(() => ({ message: "" })),
+      true,
+    );
+  const rotate = () =>
+    void perform(
+      () =>
+        input({
+          deviceId: device.id,
+          input: { kind: "rotate", orientation: landscape ? "portrait" : "landscape" },
+        }).then(() => ({ message: "" })),
+      true,
+    );
   async function sendText() {
     const value = text;
     if (!value) return;
-    const ok = await perform(() => input({ deviceId: device.id, input: { kind: "text", text: value } }).then(() => ({ message: "" })), true);
+    const ok = await perform(
+      () =>
+        input({ deviceId: device.id, input: { kind: "text", text: value } }).then(() => ({ message: "" })),
+      true,
+    );
     if (ok) {
       setText("");
       setTyping(false);
@@ -105,16 +156,28 @@ function Toolbar({ theme, device, workspace, onChange }: { theme: PluginTheme; d
         <Text style={{ color: c.foreground, fontWeight: "600" }} numberOfLines={1}>
           {device.name}
         </Text>
-        <Pill theme={theme} label={`${device.detail} · ${stateLabel(device)}`} tone={device.error ? "danger" : on ? "success" : "muted"} />
+        <StatusLine theme={theme} device={device} />
       </View>
       {on ? (
         <>
           <IconButton theme={theme} icon="House" label="Home" onPress={() => key("home")} />
-          {device.platform === "android" ? <IconButton theme={theme} icon="ArrowLeft" label="Back" onPress={() => key("back")} /> : null}
-          {device.platform === "android" ? <IconButton theme={theme} icon="Layers" label="Recent apps" onPress={() => key("appSwitch")} /> : null}
+          {device.platform === "android" ? (
+            <IconButton theme={theme} icon="ArrowLeft" label="Back" onPress={() => key("back")} />
+          ) : null}
+          {device.platform === "android" ? (
+            <IconButton theme={theme} icon="Layers" label="Recent apps" onPress={() => key("appSwitch")} />
+          ) : null}
           <IconButton theme={theme} icon="RotateCw" label="Rotate" onPress={rotate} />
           <IconButton theme={theme} icon="Keyboard" label="Type text" onPress={() => setTyping(true)} />
-          <IconButton theme={theme} icon="PowerOff" label="Turn off" disabled={busy} onPress={() => void perform(() => power({ deviceId: device.id, action: "shutdown" }))} />
+          {canTurnOff(device) ? (
+            <IconButton
+              theme={theme}
+              icon="PowerOff"
+              label="Turn off"
+              disabled={busy}
+              onPress={() => void perform(() => power({ deviceId: device.id, action: "shutdown" }))}
+            />
+          ) : null}
         </>
       ) : null}
       <IconButton theme={theme} icon="ArrowLeftRight" label="Change device" onPress={onChange} />
@@ -137,11 +200,24 @@ function Toolbar({ theme, device, workspace, onChange }: { theme: PluginTheme; d
             onSubmitEditing={() => void sendText()}
             placeholder="Text to type"
             placeholderTextColor={c.foregroundMuted}
-            style={{ color: c.foreground, backgroundColor: c.surface2, borderColor: c.border, borderWidth: 1, borderRadius: 8, padding: 10 }}
+            style={{
+              color: c.foreground,
+              backgroundColor: c.surface2,
+              borderColor: c.border,
+              borderWidth: 1,
+              borderRadius: 8,
+              padding: 10,
+            }}
           />
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
             <Button theme={theme} label="Cancel" onPress={() => setTyping(false)} />
-            <Button theme={theme} primary label="Type" disabled={!text || busy} onPress={() => void sendText()} />
+            <Button
+              theme={theme}
+              primary
+              label="Type"
+              disabled={!text || busy}
+              onPress={() => void sendText()}
+            />
           </View>
         </Modal.Content>
       </Modal>
@@ -151,6 +227,7 @@ function Toolbar({ theme, device, workspace, onChange }: { theme: PluginTheme; d
 
 function DevicePicker({
   theme,
+  hostId,
   workspace,
   devices,
   assignments,
@@ -158,6 +235,7 @@ function DevicePicker({
   onDone,
 }: {
   theme: PluginTheme;
+  hostId: string;
   workspace: Workspace;
   devices: Device[];
   assignments: Assignment[];
@@ -165,16 +243,17 @@ function DevicePicker({
   onDone(): void;
 }) {
   const { assign, create, power } = useDeviceRpcs();
-  const { busy, perform } = useAction();
+  const { busy, perform } = useAction(hostId);
   const [confirm, setConfirm] = useState<{ device: Device; holder: Assignment } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const c = theme.colors;
-  const holderOf = (d: Device) => assignments.find((a) => a.deviceId === d.id && a.workspaceId !== workspace.workspaceId);
+  const holderOf = (d: Device) =>
+    assignments.find((a) => a.deviceId === d.id && a.workspaceId !== workspace.workspaceId);
 
   async function use(device: Device, takeOver: boolean) {
     const ok = await perform(() => assign({ ...workspace, deviceId: device.id, takeOver }));
     if (!ok) return;
-    if (device.state === "shutdown") await perform(() => power({ deviceId: device.id, action: "boot" }), true);
+    if (canTurnOn(device)) await perform(() => power({ deviceId: device.id, action: "boot" }), true);
     setConfirm(null);
     onDone();
   }
@@ -185,8 +264,8 @@ function DevicePicker({
   const { main, rest } = splitDevices(devices, new Set(assignments.map((a) => a.deviceId)));
   const shown = showAll ? devices : main;
   const groups: [string, Device[]][] = [
-    ["iOS", shown.filter((d) => d.platform === "ios")],
-    ["Android", shown.filter((d) => d.platform === "android")],
+    ["iOS", onFirst(shown.filter((d) => d.platform === "ios"))],
+    ["Android", onFirst(shown.filter((d) => d.platform === "android"))],
   ];
 
   return (
@@ -204,21 +283,23 @@ function DevicePicker({
               {list.map((d, index) => {
                 const holder = holderOf(d);
                 return (
-                  <View
+                  <DeviceRow
                     key={d.id}
-                    style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderTopWidth: index ? 1 : 0, borderTopColor: c.border, flexWrap: "wrap" }}
+                    theme={theme}
+                    device={d}
+                    first={index === 0}
+                    note={holder && `in use by ${holder.workspaceName}`}
+                    warn={Boolean(holder)}
                   >
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={{ color: c.foreground }} numberOfLines={1}>
-                        {d.name}
-                      </Text>
-                      <Pill
+                    {canDuplicate(d) ? (
+                      <Button
                         theme={theme}
-                        label={`${d.detail} · ${stateLabel(d)}${holder ? ` · in use by ${holder.workspaceName}` : ""}`}
-                        tone={holder ? "warning" : d.state === "booted" ? "success" : "muted"}
+                        icon="Copy"
+                        label="New copy"
+                        disabled={busy}
+                        onPress={() => void duplicate(d)}
                       />
-                    </View>
-                    {canDuplicate(d) ? <Button theme={theme} icon="Copy" label="New copy" disabled={busy} onPress={() => void duplicate(d)} /> : null}
+                    ) : null}
                     <Button
                       theme={theme}
                       primary={!holder}
@@ -226,7 +307,7 @@ function DevicePicker({
                       disabled={busy}
                       onPress={() => (holder ? setConfirm({ device: d, holder }) : void use(d, false))}
                     />
-                  </View>
+                  </DeviceRow>
                 );
               })}
             </Card>
@@ -235,19 +316,35 @@ function DevicePicker({
       )}
       {rest.length ? (
         <View style={{ alignItems: "flex-start" }}>
-          <Button theme={theme} label={showAll ? "Show fewer" : `Show all ${devices.length} devices`} onPress={() => setShowAll(!showAll)} />
+          <Button
+            theme={theme}
+            label={showAll ? "Show fewer" : `Show all ${devices.length} devices`}
+            onPress={() => setShowAll(!showAll)}
+          />
         </View>
       ) : null}
-      <Modal title="Take over this device?" open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+      <Modal
+        title="Take over this device?"
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+      >
         <Modal.Content>
           <Text style={{ color: c.foreground, lineHeight: 20 }}>
-            {confirm?.device.name} belongs to {confirm?.holder.workspaceName}. Taking it moves it here; agents there lose it. "New copy"
-            gives this workspace its own device instead.
+            {confirm?.device.name} belongs to {confirm?.holder.workspaceName}. Taking it moves it here; agents
+            there lose it. "New copy" gives this workspace its own device instead.
           </Text>
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
             <Button theme={theme} label="Cancel" onPress={() => setConfirm(null)} />
-            {confirm && canDuplicate(confirm.device) ? <Button theme={theme} label="New copy" onPress={() => void duplicate(confirm.device)} /> : null}
-            <Button theme={theme} danger label="Take over" disabled={busy} onPress={() => confirm && void use(confirm.device, true)} />
+            {confirm && canDuplicate(confirm.device) ? (
+              <Button theme={theme} label="New copy" onPress={() => void duplicate(confirm.device)} />
+            ) : null}
+            <Button
+              theme={theme}
+              danger
+              label="Take over"
+              disabled={busy}
+              onPress={() => confirm && void use(confirm.device, true)}
+            />
           </View>
         </Modal.Content>
       </Modal>

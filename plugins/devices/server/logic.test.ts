@@ -29,7 +29,13 @@ test("a held device isn't silently taken by another workspace", async () => {
 test("one device per workspace; release frees it", async () => {
   await state.setAssignment(A, "ios:2", false);
   await state.setAssignment(A, "ios:3", false);
-  assert.deepEqual(state.assignments().filter((x) => x.workspaceId === "a").map((x) => x.deviceId), ["ios:3"]);
+  assert.deepEqual(
+    state
+      .assignments()
+      .filter((x) => x.workspaceId === "a")
+      .map((x) => x.deviceId),
+    ["ios:3"],
+  );
   assert.equal(await state.setAssignment(A, null, false), "Released the device");
   assert.equal(state.holderOf("ios:3"), undefined);
 });
@@ -43,7 +49,15 @@ test("agents in a subfolder of a workspace find its device; the deepest workspac
 
 test("featured devices: on, held, owned, Android, and newest-iOS iPhones", () => {
   const d = (id: string, name: string, detail: string, extra: Partial<Device> = {}): Device => ({
-    id, platform: id.startsWith("ios") ? "ios" : "android", name, detail, state: "shutdown", kind: "simulator", owned: false, error: null, ...extra,
+    id,
+    platform: id.startsWith("ios") ? "ios" : "android",
+    name,
+    detail,
+    state: "shutdown",
+    kind: "simulator",
+    owned: false,
+    error: null,
+    ...extra,
   });
   const devices = [
     d("ios:old", "iPhone 17", "iOS 26.4"),

@@ -1,18 +1,20 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
-import { useDevices } from "./client/data";
+import { isOn, useDevices } from "./client/data";
 import { DevicePanel } from "./client/panel";
 import { DevicesScreen } from "./client/screen";
 
-function DevicesItem({ theme, currentScreen, openScreen }: PluginSidebarItemProps) {
-  const on = useDevices().data?.devices.filter((d) => d.state !== "shutdown").length ?? 0;
+function DevicesItem({ theme, host, currentScreen, openScreen }: PluginSidebarItemProps) {
+  const on = useDevices(host.id).data?.devices.filter(isOn).length ?? 0;
   return (
     <SidebarRow
       icon="Smartphone"
       active={currentScreen?.screenId === "devices"}
       onPress={() => openScreen({ screenId: "devices" })}
-      trailing={on ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{on} on</Text> : undefined}
+      trailing={
+        on ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{on} on</Text> : undefined
+      }
     />
   );
 }

@@ -2,6 +2,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
+import type { Device } from "../shared/contracts";
+import { stateLabel } from "./data";
 
 export function Button({
   theme,
@@ -48,7 +50,19 @@ export function Button({
 }
 
 /** An icon-only toolbar button, labelled for screen readers. */
-export function IconButton({ theme, icon, label, onPress, disabled }: { theme: PluginTheme; icon: string; label: string; onPress(): void; disabled?: boolean }) {
+export function IconButton({
+  theme,
+  icon,
+  label,
+  onPress,
+  disabled,
+}: {
+  theme: PluginTheme;
+  icon: string;
+  label: string;
+  onPress(): void;
+  disabled?: boolean;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -63,15 +77,86 @@ export function IconButton({ theme, icon, label, onPress, disabled }: { theme: P
   );
 }
 
-export function Pill({ theme, label, tone }: { theme: PluginTheme; label: string; tone?: "success" | "warning" | "danger" | "muted" }) {
+/** "iOS 26.5 · on", colored by state; `note` adds who holds it, `warn` colors that as a warning. */
+export function StatusLine({
+  theme,
+  device,
+  note,
+  warn,
+}: {
+  theme: PluginTheme;
+  device: Device;
+  note?: string;
+  warn?: boolean;
+}) {
   const c = theme.colors;
-  const color = tone === "success" ? c.statusSuccess : tone === "warning" ? c.statusWarning : tone === "danger" ? c.statusDanger : c.foregroundMuted;
-  return <Text style={{ color, fontSize: 12 }}>{label}</Text>;
+  const color = device.error
+    ? c.statusDanger
+    : warn
+      ? c.statusWarning
+      : device.state === "booted"
+        ? c.statusSuccess
+        : c.foregroundMuted;
+  return (
+    <Text style={{ color, fontSize: 12 }} numberOfLines={2}>
+      {[device.detail, stateLabel(device), note].filter(Boolean).join(" · ")}
+    </Text>
+  );
+}
+
+/** A device's name and status, with its actions on the right (below, on a narrow phone). */
+export function DeviceRow({
+  theme,
+  device,
+  first,
+  note,
+  warn,
+  children,
+}: {
+  theme: PluginTheme;
+  device: Device;
+  first: boolean;
+  note?: string;
+  warn?: boolean;
+  children?: ReactNode;
+}) {
+  const c = theme.colors;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 8,
+        padding: 10,
+        borderTopWidth: first ? 0 : 1,
+        borderTopColor: c.border,
+      }}
+    >
+      <View style={{ flex: 1, minWidth: 150 }}>
+        <Text style={{ color: c.foreground }} numberOfLines={1}>
+          {device.name}
+        </Text>
+        <StatusLine theme={theme} device={device} note={note} warn={warn} />
+      </View>
+      {children}
+    </View>
+  );
 }
 
 export function Card({ theme, children }: { theme: PluginTheme; children: ReactNode }) {
   const c = theme.colors;
   return (
-    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>{children}</View>
+    <View
+      style={{
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: c.border,
+        backgroundColor: c.surface1,
+        overflow: "hidden",
+      }}
+    >
+      {children}
+    </View>
   );
 }

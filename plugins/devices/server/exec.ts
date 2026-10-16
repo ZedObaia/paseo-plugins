@@ -14,10 +14,15 @@ export function run(cmd: string, args: string[], timeoutMs = 15_000): Promise<st
 /** Same, but keeps stdout as bytes (screenshots). */
 export function runBuffer(cmd: string, args: string[], timeoutMs = 15_000): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, encoding: "buffer" }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr.toString().trim() || error.message));
-      else resolve(stdout);
-    });
+    execFile(
+      cmd,
+      args,
+      { timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024, encoding: "buffer" },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr.toString().trim() || error.message));
+        else resolve(stdout);
+      },
+    );
   });
 }
 
