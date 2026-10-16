@@ -1,7 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { dockerActionRpc, signalProcessRpc, snapshotRpc, type Snapshot } from "./shared/contracts";
 import { dockerAction, dockerSnapshot } from "./server/docker";
-import { startCpuSampler, systemSnapshot } from "./server/system";
+import { startSampler, systemSnapshot } from "./server/system";
 
 /**
  * Serves the last value at once and refreshes it in the background once it's older than
@@ -27,8 +27,9 @@ function cachedSource<T>(load: () => Promise<T>, maxAgeMs: number) {
 }
 
 export default function contribute(server: PluginServerContext) {
-  const stopSampler = startCpuSampler();
-  const system = cachedSource(systemSnapshot, 2_000);
+  const stopSampler = startSampler();
+  // `top` (macOS process memory) takes about a second, so refresh at most every 5 s
+  const system = cachedSource(systemSnapshot, 5_000);
   const docker = cachedSource(dockerSnapshot, 8_000);
 
   server.handle(snapshotRpc, async (): Promise<Snapshot> => {

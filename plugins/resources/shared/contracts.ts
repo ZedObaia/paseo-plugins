@@ -9,8 +9,16 @@ const processInfo = z.object({
   user: z.string(),
   cpuPct: z.number(),
   memPct: z.number(),
-  rssBytes: bytes,
+  // macOS: physical footprint including compressed memory (what Activity Monitor shows);
+  // Linux: resident memory
+  memBytes: bytes,
 });
+
+// processes grouped by app ("Google Chrome" for all its helpers, "tsserver" for every node tsserver)
+const app = z.object({ name: z.string(), count: z.number().int(), memBytes: bytes, cpuPct: z.number() });
+
+// one background sample every 5 s, the last 10 minutes; mem and swap are used fractions 0..1
+const sample = z.object({ t: z.number(), cpu: z.number(), mem: z.number(), swap: z.number() });
 
 const container = z.object({
   id: z.string(),
@@ -71,11 +79,15 @@ export const snapshotSchema = z.object({
   disks: z.array(z.object({ mount: z.string(), totalBytes: bytes, usedBytes: bytes })),
   topCpu: z.array(processInfo),
   topMemory: z.array(processInfo),
+  apps: z.array(app),
+  history: z.array(sample),
   docker,
 });
 
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ProcessInfo = z.infer<typeof processInfo>;
+export type App = z.infer<typeof app>;
+export type Sample = z.infer<typeof sample>;
 export type Container = z.infer<typeof container>;
 export type DockerProject = z.infer<typeof project>;
 
