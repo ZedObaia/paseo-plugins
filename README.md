@@ -2,23 +2,25 @@
 
 Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 
-| Plugin                                     | What it does                                                                               |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| [Resources](plugins/resources/OVERVIEW.md) | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions     |
-| [Devices](plugins/devices/OVERVIEW.md)     | iOS simulators and Android emulators per workspace: live view, input, and tools for agents |
+| Plugin                                                         | What it does                                                                                               |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                     |
+| [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                 |
+| [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing |
 
 ## Install
 
 Turn on **Settings → Plugins → Enable plugins** on the host, then:
 
 ```bash
-paseo plugin add git:ZedObaia/paseo-plugins:plugins/resources
+paseo plugin add zedobaia/resources                                    # from the Paseo registry
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/devices
+paseo plugin add git:ZedObaia/paseo-plugins:plugins/projects-everywhere
 ```
 
 Each plugin runs on the daemon you install it into, so install Resources on every host you want to
-watch, and Devices on the Mac (or Android SDK host) that runs your simulators. Update with
-`paseo plugin update <id>`.
+watch, Devices on the Mac (or Android SDK host) that runs your simulators, and Projects everywhere
+on the hosts you use. Update with `paseo plugin update <id>`.
 
 ## Develop
 

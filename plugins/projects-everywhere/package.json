@@ -1,0 +1,28 @@
+{
+  "name": "paseo-plugin-projects-everywhere",
+  "version": "0.1.0",
+  "description": "See which projects each Paseo host has and add a project to several hosts at once, cloning it where it's missing.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZedObaia/paseo-plugins.git",
+    "directory": "plugins/projects-everywhere"
+  },
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.11.4",
+    "@getpaseo/plugin": "0.11.4",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.20.5",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  }
+}
