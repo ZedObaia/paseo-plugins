@@ -2,39 +2,39 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import type { Port } from "../shared/contracts";
-import { errorMessage, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
+import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
+import { ShareModal } from "./share";
+import { IconButton } from "./ui";
 
-function IconButton({
+/** One way a port is shared, with its address and what can be done with it. */
+function ShareLine({
   theme,
   icon,
   label,
-  onPress,
-  disabled,
+  color,
+  text,
+  children,
 }: {
   theme: PluginTheme;
   icon: string;
   label: string;
-  onPress(): void;
-  disabled?: boolean;
+  color: string;
+  text: string;
+  children?: ReactNode;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => ({ padding: 6, borderRadius: 8, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}
-    >
-      <Icon name={icon} size={16} color={theme.colors.foregroundMuted} />
-    </Pressable>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 26 }}>
+      <Icon name={icon} size={13} color={color} />
+      <Text style={{ flex: 1, color: theme.colors.foregroundMuted, fontSize: 12 }} numberOfLines={2}>
+        <Text style={{ color, fontWeight: "600" }}>{label}</Text> {text}
+      </Text>
+      {children}
+    </View>
   );
 }
-
-const hostOf = (url: string) => url.replace(/^https?:\/\//, "");
 
 function PortRow({
   theme,
@@ -44,6 +44,7 @@ function PortRow({
   inApp,
   open,
   copy,
+  share,
   stop,
 }: {
   theme: PluginTheme;
@@ -53,21 +54,16 @@ function PortRow({
   /** The row opens the port in Paseo's browser, and a button beside it in the system's. */
   inApp: boolean;
   open(inApp: boolean): void;
-  copy(): void;
-  stop(): void;
+  copy(text: string, what: string): void;
+  share(): void;
+  stop(level: "private" | "public"): void;
 }) {
   const c = theme.colors;
-  const note = port.forwarded
-    ? { text: `Forwarded to ${hostOf(port.url)}`, color: c.statusSuccess }
-    : port.needsForward
-      ? { text: "Listens on loopback only; opening it forwards it", color: c.foregroundMuted }
-      : null;
+  const pub = port.public;
   return (
     <View
       style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 2,
+        gap: 4,
         paddingLeft: 12,
         paddingRight: 6,
         paddingVertical: 8,
@@ -75,64 +71,113 @@ function PortRow({
         borderTopColor: c.border,
       }}
     >
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel={`Open port ${port.port}, ${portName(port)}`}
-        disabled={busy}
-        onPress={() => open(inApp)}
-        style={({ pressed }) => ({
-          flex: 1,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-          opacity: pressed ? 0.6 : 1,
-        })}
-      >
-        <Icon name={port.source === "docker" ? "Container" : "Globe"} size={16} color={c.foregroundMuted} />
-        <View style={{ flex: 1, gap: 1 }}>
-          <Text style={{ color: c.foreground, fontSize: 14 }} numberOfLines={1}>
-            <Text style={{ fontWeight: "600" }}>{port.port}</Text>
-            <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
-          </Text>
-          {port.detail ? (
-            <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
-              {port.detail}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`Open port ${port.port}, ${portName(port)}`}
+          disabled={busy}
+          onPress={() => open(inApp)}
+          style={({ pressed }) => ({
+            flex: 1,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Icon name={port.source === "docker" ? "Container" : "Globe"} size={16} color={c.foregroundMuted} />
+          <View style={{ flex: 1, gap: 1 }}>
+            <Text style={{ color: c.foreground, fontSize: 14 }} numberOfLines={1}>
+              <Text style={{ fontWeight: "600" }}>{port.port}</Text>
+              <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
             </Text>
-          ) : null}
-          {note ? (
-            <Text style={{ color: note.color, fontSize: 12 }} numberOfLines={2}>
-              {note.text}
-            </Text>
-          ) : null}
-        </View>
-      </Pressable>
-      {busy ? (
-        <ActivityIndicator size="small" color={c.foregroundMuted} style={{ marginHorizontal: 6 }} />
-      ) : null}
-      {inApp ? (
+            {port.detail ? (
+              <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
+                {port.detail}
+              </Text>
+            ) : null}
+            {port.needsForward ? (
+              <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={2}>
+                Listens on loopback only; opening it forwards it
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+        {busy ? (
+          <ActivityIndicator size="small" color={c.foregroundMuted} style={{ marginHorizontal: 6 }} />
+        ) : null}
+        {inApp ? (
+          <IconButton
+            theme={theme}
+            icon="ExternalLink"
+            label={`Open port ${port.port} in your browser`}
+            disabled={busy}
+            onPress={() => open(false)}
+          />
+        ) : null}
         <IconButton
           theme={theme}
-          icon="ExternalLink"
-          label={`Open port ${port.port} in your browser`}
+          icon="Copy"
+          label={`Copy link to port ${port.port}`}
           disabled={busy}
-          onPress={() => open(false)}
+          onPress={() => copy(port.url, "Link")}
         />
-      ) : null}
-      <IconButton
-        theme={theme}
-        icon="Copy"
-        label={`Copy link to port ${port.port}`}
-        disabled={busy}
-        onPress={copy}
-      />
-      {port.forwarded ? (
         <IconButton
           theme={theme}
-          icon="Unplug"
-          label={`Stop forwarding port ${port.port}`}
+          icon="Share2"
+          label={`Share port ${port.port}`}
           disabled={busy}
-          onPress={stop}
+          onPress={share}
         />
+      </View>
+      {port.private ? (
+        <ShareLine
+          theme={theme}
+          icon="Lock"
+          label="Private"
+          color={c.statusSuccess}
+          text={port.private.https ? `at ${hostOf(port.url)}` : `forwarded to ${hostOf(port.url)}`}
+        >
+          <IconButton
+            theme={theme}
+            icon="Square"
+            label={`Stop sharing port ${port.port} privately`}
+            disabled={busy}
+            onPress={() => stop("private")}
+          />
+        </ShareLine>
+      ) : null}
+      {pub ? (
+        <ShareLine
+          theme={theme}
+          icon="Globe"
+          label="Public"
+          color={c.statusWarning}
+          text={`${hostOf(pub.url)}${pub.password ? ` · password ${pub.password}` : " · no password"}`}
+        >
+          <IconButton
+            theme={theme}
+            icon="Copy"
+            label={`Copy the public link to port ${port.port}`}
+            onPress={() => copy(pub.url, "Public link")}
+          />
+          {pub.password ? (
+            <IconButton
+              theme={theme}
+              icon="KeyRound"
+              label={`Copy the password for port ${port.port}`}
+              onPress={() => copy(pub.password!, "Password")}
+            />
+          ) : null}
+          <IconButton
+            theme={theme}
+            icon="Square"
+            label={`Stop sharing port ${port.port} publicly`}
+            color={c.statusWarning}
+            disabled={busy}
+            onPress={() => stop("public")}
+          />
+        </ShareLine>
       ) : null}
     </View>
   );
@@ -142,12 +187,16 @@ function PortRow({
 export function PortsPanel({ theme, layout, host, workspaceId, navigation }: PluginWorkspacePanelProps) {
   const c = theme.colors;
   const scan = useScan(host.id);
-  const { forward, unforward } = usePortRpcs();
+  const { forward, unshare } = usePortRpcs();
   const toast = useToast();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<number | null>(null);
+  const [sharing, setSharing] = useState<number | null>(null);
   const openBrowser = navigation?.openBrowser;
   const ports = scan.data?.workspaces[workspaceId] ?? [];
+  const shared = ports.find((p) => p.port === sharing);
+  // a forward or share changes the port's links
+  const changed = () => void queryClient.invalidateQueries({ queryKey: queryKey(host.id) });
 
   async function perform(port: Port, work: () => Promise<void>) {
     setBusy(port.port);
@@ -157,8 +206,7 @@ export function PortsPanel({ theme, layout, host, workspaceId, navigation }: Plu
       toast.error(errorMessage(error));
     } finally {
       setBusy(null);
-      // a forward changes the port's link
-      void queryClient.invalidateQueries({ queryKey: queryKey(host.id) });
+      changed();
     }
   }
   const open = (port: Port, inApp: boolean) =>
@@ -167,12 +215,13 @@ export function PortsPanel({ theme, layout, host, workspaceId, navigation }: Plu
       if (inApp && openBrowser) openBrowser({ url, workspaceId });
       else await openExternalUrl(url);
     });
-  const copy = (port: Port) =>
+  const copy = (port: Port, text: string, what: string) =>
     perform(port, async () => {
-      await copyText(await portUrl(port, forward));
-      toast.show("Link copied", { variant: "success" });
+      await copyText(text === port.url ? await portUrl(port, forward) : text);
+      toast.show(`${what} copied`, { variant: "success" });
     });
-  const stop = (port: Port) => perform(port, () => unforward({ port: port.port }).then(() => {}));
+  const stop = (port: Port, level: "private" | "public") =>
+    perform(port, () => unshare({ port: port.port, level }).then(() => {}));
 
   const muted = { color: c.foregroundMuted, fontSize: 13 };
   return (
@@ -212,8 +261,9 @@ export function PortsPanel({ theme, layout, host, workspaceId, navigation }: Plu
               busy={busy === port.port}
               inApp={!!openBrowser}
               open={(inApp) => void open(port, inApp)}
-              copy={() => void copy(port)}
-              stop={() => void stop(port)}
+              copy={(text, what) => void copy(port, text, what)}
+              share={() => setSharing(port.port)}
+              stop={(level) => void stop(port, level)}
             />
           ))}
         </View>
@@ -222,6 +272,17 @@ export function PortsPanel({ theme, layout, host, workspaceId, navigation }: Plu
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
           Links open at {scan.data.linkHost}. Change it in Settings, Plugins, Ports.
         </Text>
+      ) : null}
+      {shared && scan.data ? (
+        <ShareModal
+          theme={theme}
+          compact={layout.compact}
+          port={shared}
+          sharing={scan.data.sharing}
+          open
+          onOpenChange={(next) => !next && setSharing(null)}
+          changed={changed}
+        />
       ) : null}
     </ScrollView>
   );

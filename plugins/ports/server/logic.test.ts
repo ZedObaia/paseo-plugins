@@ -6,8 +6,8 @@ import { autoLinkHost } from "./links";
 import { parseLsofCwd, parseLsofListen, parsePsColumns } from "./lsof";
 import { assign } from "./match";
 import { parseProcNetTcp, parseStatPpid } from "./procfs";
-import { shortCommand, toListeners, type Listener, type ProcessInfo } from "./processes";
-import { toPort } from "./scan";
+import { displayName, shortCommand, toListeners, type Listener, type ProcessInfo } from "./processes";
+import { toPort, type Shared } from "./scan";
 
 test("canonicalAddress spells each address one way", () => {
   assert.equal(canonicalAddress("*"), "0.0.0.0");
@@ -104,6 +104,25 @@ test("parseLsofListen and parseLsofCwd read lsof's field output", () => {
       [777, "1"],
     ],
   );
+});
+
+test("displayName names an interpreter's script, else the executable", () => {
+  assert.equal(displayName("node /tmp/app/node_modules/.bin/vite"), "vite");
+  assert.equal(displayName("/usr/bin/node --inspect server.mjs"), "server");
+  assert.equal(displayName("python3 -m http.server 8000 --bind 127.0.0.1"), "http.server");
+  assert.equal(displayName("python3.12 manage.py runserver"), "manage");
+  assert.equal(displayName("deno run --allow-net main.ts"), "main");
+  assert.equal(displayName("/usr/local/bin/cloudflared tunnel run"), "cloudflared");
+  assert.equal(
+    displayName(
+      "/usr/bin/node --require /app/node_modules/tsx/dist/preflight.cjs --import file:///app/loader.mjs --conditions=source src/index.ts",
+    ),
+    "index",
+  );
+  assert.equal(displayName(`node -e require("http").createServer()`), "node");
+  assert.equal(displayName("python3 -c import http.server"), "python3");
+  assert.equal(displayName("node"), "node");
+  assert.equal(displayName(""), null);
 });
 
 test("shortCommand drops the directories of absolute paths", () => {
@@ -213,19 +232,25 @@ test("autoLinkHost follows where the daemon listens", () => {
 });
 
 test("toPort links each bind where the app can reach it", () => {
-  const at = (address: string, host: string, forwardedAt: number | null = null) => {
-    const p = toPort(listener(5173, {}, address), host, forwardedAt, null);
-    return [p.url, p.needsForward, p.forwarded];
+  const none: Shared = { forwardedAt: null, privateUrl: null, public: null };
+  const at = (address: string, host: string, shared: Partial<Shared> = {}) => {
+    const p = toPort(listener(5173, {}, address), host, { ...none, ...shared }, null);
+    return [p.url, p.needsForward, p.private];
   };
-  assert.deepEqual(at("127.0.0.1", "localhost"), ["http://localhost:5173", false, false]);
-  assert.deepEqual(at("::", "localhost"), ["http://localhost:5173", false, false]);
-  assert.deepEqual(at("0.0.0.0", "100.1.2.3"), ["http://100.1.2.3:5173", false, false]);
-  assert.deepEqual(at("192.168.1.20", "100.1.2.3"), ["http://192.168.1.20:5173", false, false]);
-  assert.deepEqual(at("::1", "100.1.2.3"), ["http://100.1.2.3:5173", true, false]);
-  assert.deepEqual(at("127.0.0.1", "box.tailnet.ts.net", 41000), [
+  assert.deepEqual(at("127.0.0.1", "localhost"), ["http://localhost:5173", false, null]);
+  assert.deepEqual(at("::", "localhost"), ["http://localhost:5173", false, null]);
+  assert.deepEqual(at("0.0.0.0", "100.1.2.3"), ["http://100.1.2.3:5173", false, null]);
+  assert.deepEqual(at("192.168.1.20", "100.1.2.3"), ["http://192.168.1.20:5173", false, null]);
+  assert.deepEqual(at("::1", "100.1.2.3"), ["http://100.1.2.3:5173", true, null]);
+  assert.deepEqual(at("127.0.0.1", "box.tailnet.ts.net", { forwardedAt: 41000 }), [
     "http://box.tailnet.ts.net:41000",
-    true,
-    true,
+    false,
+    { https: false },
   ]);
-  assert.deepEqual(at("::", "fd7a::1"), ["http://[fd7a::1]:5173", false, false]);
+  assert.deepEqual(at("::", "fd7a::1"), ["http://[fd7a::1]:5173", false, null]);
+  assert.deepEqual(at("::1", "100.1.2.3", { privateUrl: "https://box.tailnet.ts.net:5173" }), [
+    "https://box.tailnet.ts.net:5173",
+    false,
+    { https: true },
+  ]);
 });

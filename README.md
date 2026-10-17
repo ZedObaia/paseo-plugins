@@ -7,7 +7,7 @@ Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 | [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                     |
 | [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                 |
 | [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing |
-| [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links that open them in Paseo's browser or yours                         |
+| [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                         |
 
 ## Install
 

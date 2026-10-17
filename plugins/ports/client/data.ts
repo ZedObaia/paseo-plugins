@@ -1,9 +1,16 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { forwardRpc, scanRpc, unforwardRpc, type Port } from "../shared/contracts";
+import {
+  forwardRpc,
+  scanRpc,
+  sharePrivateRpc,
+  sharePublicRpc,
+  unshareRpc,
+  type Port,
+} from "../shared/contracts";
 
 // The app shares one query cache between its plugins and hosts: keys start with the host.
-export const queryKey = (hostId: string) => ["ports", hostId];
+export const queryKey = (hostId: string) => [hostId, "ports", "scan"];
 
 export const POLL_MS = 3_000;
 
@@ -18,15 +25,22 @@ export async function portUrl(
   port: Port,
   forward: (input: { port: number }) => Promise<{ url: string }>,
 ): Promise<string> {
-  return port.needsForward && !port.forwarded ? (await forward({ port: port.port })).url : port.url;
+  return port.needsForward ? (await forward({ port: port.port })).url : port.url;
 }
 
 export function usePortRpcs() {
-  return { forward: useRpc(forwardRpc), unforward: useRpc(unforwardRpc) };
+  return {
+    forward: useRpc(forwardRpc),
+    sharePrivate: useRpc(sharePrivateRpc),
+    sharePublic: useRpc(sharePublicRpc),
+    unshare: useRpc(unshareRpc),
+  };
 }
 
 /** The Paseo service script's name, else the process or container name. */
 export const portName = (port: Port) => port.service ?? port.name;
+
+export const hostOf = (url: string) => url.replace(/^https?:\/\//, "");
 
 export const errorMessage = (error: unknown) =>
   error instanceof Error

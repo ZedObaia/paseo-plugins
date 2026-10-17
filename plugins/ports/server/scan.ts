@@ -7,6 +7,7 @@ import { dockerListeners } from "./docker";
 import type { Forwards } from "./links";
 import { assign } from "./match";
 import { processListeners, type Listener } from "./processes";
+import type { Shares } from "./shares";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Workspace = Awaited<ReturnType<Paseo["workspaces"]["list"]>>["entries"][number];
@@ -14,7 +15,7 @@ type Workspace = Awaited<ReturnType<Paseo["workspaces"]["list"]>>["entries"][num
 export interface Scan {
   output: RpcOutput<typeof scanRpc>;
   host: string;
-  /** Ports some workspace holds: the only ones the plugin forwards. */
+  /** Ports some workspace holds: the only ones the plugin forwards or shares. */
   attributed: Listener[];
 }
 
@@ -41,21 +42,26 @@ const resolved = (dir: string) => {
 const directoryOf = (w: Workspace) =>
   w.workspaceDirectory ?? (w.workspaceKind === "worktree" ? null : w.projectRootPath);
 
+export interface Shared {
+  /** Where its forward listens, if it has one. */
+  forwardedAt: number | null;
+  /** Its HTTPS address on the tailnet, when shared privately with `tailscale serve`. */
+  privateUrl: string | null;
+  public: Port["public"];
+}
+
 /**
- * How the app opens a port. One bound everywhere opens at the link host; one bound to a single
- * interface opens at that interface's address. One bound to loopback only opens at localhost
- * when the app runs on this machine, and otherwise through a forward at the link host.
+ * How the app opens a port. One shared privately over HTTPS opens at its tailnet name. Otherwise
+ * one bound everywhere opens at the link host, and one bound to a single interface at that
+ * interface's address. One bound to loopback only opens at localhost when the app runs on this
+ * machine, and otherwise through a forward at the link host.
  */
-export function toPort(
-  listener: Listener,
-  host: string,
-  forwardedAt: number | null,
-  service: string | null,
-): Port {
+export function toPort(listener: Listener, host: string, shared: Shared, service: string | null): Port {
   const local = isLoopback(host);
   const loopback = isLoopback(listener.address);
   const at =
     isWildcard(listener.address) || (loopback && !local) ? host : loopback ? "localhost" : listener.address;
+  const forwarded = shared.forwardedAt !== null;
   return {
     port: listener.port,
     address: listener.address,
@@ -64,25 +70,26 @@ export function toPort(
     pid: listener.pid,
     source: listener.source,
     service,
-    url: `http://${urlHost(at)}:${forwardedAt ?? listener.port}`,
-    needsForward: loopback && !local,
-    forwarded: forwardedAt !== null,
+    url: shared.privateUrl ?? `http://${urlHost(at)}:${shared.forwardedAt ?? listener.port}`,
+    needsForward: loopback && !local && !forwarded && !shared.privateUrl,
+    private: shared.privateUrl ? { https: true } : forwarded ? { https: false } : null,
+    public: shared.public,
   };
 }
 
-export async function scan(paseo: Paseo, host: string, forwards: Forwards): Promise<Scan> {
+export async function scan(paseo: Paseo, host: string, forwards: Forwards, shares: Shares): Promise<Scan> {
   let error: string | null = null;
-  const [workspaces, processes, containers] = await Promise.all([
+  const [workspaces, processes, containers, sharing] = await Promise.all([
     listWorkspaces(paseo),
     processListeners().catch((e: unknown) => {
       error = e instanceof Error ? e.message : String(e);
       return [];
     }),
     dockerListeners(),
+    shares.sharing(),
   ]);
   // containers first: a published port also shows up as a docker-proxy process
   const listeners = [...containers, ...processes];
-  forwards.prune(listeners);
   const live = workspaces.filter((w) => !w.archivingAt);
   const dirs = live.flatMap((w) => {
     const dir = directoryOf(w);
@@ -90,13 +97,13 @@ export async function scan(paseo: Paseo, host: string, forwards: Forwards): Prom
   });
   const assigned = assign(listeners, dirs);
   const services = new Map(live.map((w) => [w.id, w.scripts.filter((s) => s.type === "service")]));
-  const output: Scan["output"] = { workspaces: {}, linkHost: host, error };
+  const output: Scan["output"] = { workspaces: {}, linkHost: host, sharing, error };
   for (const [id, ports] of assigned) {
     output.workspaces[id] = ports.map((l) =>
       toPort(
         l,
         host,
-        forwards.get(l.port)?.port ?? null,
+        { forwardedAt: forwards.get(l.port)?.port ?? null, ...shares.describe(l.port) },
         services.get(id)?.find((s) => s.port === l.port)?.scriptName ?? null,
       ),
     );

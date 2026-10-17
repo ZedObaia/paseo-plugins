@@ -1,6 +1,11 @@
 import { defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
+const provider = z.enum(["funnel", "cloudflare"]);
+export type Provider = z.infer<typeof provider>;
+const access = z.enum(["open", "password"]);
+export type Access = z.infer<typeof access>;
+
 const port = z.object({
   port: z.number().int(),
   /** What the socket is bound to: 127.0.0.1, ::1, 0.0.0.0, ::, or one interface's address. */
@@ -13,13 +18,33 @@ const port = z.object({
   source: z.enum(["process", "docker"]),
   /** The Paseo service script that was given this port, if any. */
   service: z.string().nullable(),
-  /** Where to open it from the app. */
+  /** Where your own devices open it. */
   url: z.string(),
   /** Bound to loopback on a host the app reaches over the network: opening it forwards it first. */
   needsForward: z.boolean(),
-  forwarded: z.boolean(),
+  /** Shared with your tailnet: over HTTPS by `tailscale serve`, or forwarded over HTTP. */
+  private: z.object({ https: z.boolean() }).nullable(),
+  /** Reachable by anyone with the link. */
+  public: z.object({ url: z.string(), provider, access, password: z.string().nullable() }).nullable(),
 });
 export type Port = z.infer<typeof port>;
+
+const option = z.object({
+  available: z.boolean(),
+  /** What's missing when it isn't available. */
+  reason: z.string().nullable(),
+});
+export type SharingOption = z.infer<typeof option>;
+
+const sharing = z.object({
+  /** The machine's name on the tailnet, e.g. devbox.tail1234.ts.net. */
+  tailnetName: z.string().nullable(),
+  /** Private shares over HTTPS. Without it a private share is a forward over HTTP. */
+  https: option,
+  funnel: option,
+  cloudflare: option,
+});
+export type Sharing = z.infer<typeof sharing>;
 
 export const scanRpc = defineRpc({
   name: "ports.scan",
@@ -29,20 +54,35 @@ export const scanRpc = defineRpc({
     workspaces: z.record(z.string(), z.array(port)),
     /** Host name or address in the links. */
     linkHost: z.string(),
+    sharing,
     /** Why the scan found nothing it could attribute, e.g. an unsupported platform. */
     error: z.string().nullable(),
   }),
 });
 
+/** Makes a loopback-only port reachable at the link host over HTTP. */
 export const forwardRpc = defineRpc({
   name: "ports.forward",
   input: z.object({ port: z.number().int() }),
   output: z.object({ url: z.string() }),
 });
 
-export const unforwardRpc = defineRpc({
-  name: "ports.unforward",
+/** Shares a port with the tailnet: over HTTPS where Tailscale has it, else as a forward. */
+export const sharePrivateRpc = defineRpc({
+  name: "ports.share.private",
   input: z.object({ port: z.number().int() }),
+  output: z.object({ url: z.string() }),
+});
+
+export const sharePublicRpc = defineRpc({
+  name: "ports.share.public",
+  input: z.object({ port: z.number().int(), provider, access }),
+  output: z.object({ url: z.string(), password: z.string().nullable() }),
+});
+
+export const unshareRpc = defineRpc({
+  name: "ports.unshare",
+  input: z.object({ port: z.number().int(), level: z.enum(["private", "public"]) }),
   output: z.object({}),
 });
 

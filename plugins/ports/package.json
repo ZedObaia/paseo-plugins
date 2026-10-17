@@ -1,7 +1,7 @@
 {
   "name": "paseo-plugin-ports",
   "version": "0.1.0",
-  "description": "Open ports of each workspace, with links that open them in a browser.",
+  "description": "Open ports of each workspace, with links to open them and sharing over Tailscale or a Cloudflare tunnel.",
   "license": "MIT",
   "repository": {
     "type": "git",

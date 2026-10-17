@@ -59,7 +59,7 @@ interface Forward {
 
 /**
  * Loopback-only ports, made reachable at the link host. Each forward relays raw TCP, so HTTP,
- * WebSockets and hot reload all pass through, and it stops when its port stops listening.
+ * WebSockets and hot reload all pass through. Shares stops it when its port stops listening.
  */
 export class Forwards {
   private forwards = new Map<number, Forward>();
@@ -108,12 +108,8 @@ export class Forwards {
     console.log(`stopped forwarding port ${port}`);
   }
 
-  /** Stops forwards whose port no longer listens on loopback. */
-  prune(listening: readonly Listener[]): void {
-    for (const [port, forward] of this.forwards) {
-      const still = listening.some((l) => l.port === port && l.address === forward.target.address);
-      if (!still) this.close(port);
-    }
+  entries(): IterableIterator<[number, Forward]> {
+    return this.forwards.entries();
   }
 
   closeAll(): void {

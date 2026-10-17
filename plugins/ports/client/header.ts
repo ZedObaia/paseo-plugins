@@ -20,7 +20,7 @@ function button(client: PluginClientContext, workspaceId: string, ports: Port[])
         ...ports.map((port) => ({
           kind: "item" as const,
           id: `port-${port.port}`,
-          title: `${port.port} · ${portName(port)}`,
+          title: `${port.port} · ${portName(port)}${port.public ? " · public" : ""}`,
           icon: port.source === "docker" ? "Container" : "Globe",
           behavior: {
             kind: "action" as const,
@@ -56,7 +56,9 @@ export function headerButtons(client: PluginClientContext): () => void {
 
   function show(workspaces: Record<string, Port[]>) {
     for (const [workspaceId, ports] of Object.entries(workspaces)) {
-      const key = JSON.stringify(ports.map((p) => [p.port, portName(p), p.source, p.url, p.needsForward]));
+      const key = JSON.stringify(
+        ports.map((p) => [p.port, portName(p), p.source, p.url, p.needsForward, p.public?.url]),
+      );
       const shown = buttons.get(workspaceId);
       if (shown?.key === key) continue;
       const next = button(client, workspaceId, ports);

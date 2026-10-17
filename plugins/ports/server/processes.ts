@@ -74,7 +74,7 @@ export function toListeners(
     listeners.push({
       port: s.port,
       address: s.address,
-      name: proc.name,
+      name: displayName(proc.command) ?? proc.name,
       detail: shortCommand(proc.command),
       pid: s.pid,
       source: "process",
@@ -92,6 +92,47 @@ export const shortCommand = (command: string) =>
     .split(" ")
     .map((token) => (token.startsWith("/") ? token.slice(token.lastIndexOf("/") + 1) : token))
     .join(" ");
+
+const INTERPRETER = /^(node|nodejs|bun|deno|python[\d.]*|ruby|php|perl)$/;
+const INLINE_CODE = new Set(["-e", "--eval", "-p", "--print", "-c"]);
+// interpreter flags whose value is the next argument, not the script
+const TAKES_VALUE = new Set([
+  "-r",
+  "--require",
+  "--import",
+  "--loader",
+  "--experimental-loader",
+  "-C",
+  "--conditions",
+  "--env-file",
+  "--title",
+  "-W",
+  "-X",
+]);
+
+/**
+ * What a process is running: an interpreter's script ("vite" for `node …/.bin/vite`,
+ * "http.server" for `python3 -m http.server`), else its executable. Node names its main thread
+ * "MainThread", which is all /proc's short name shows.
+ */
+export function displayName(command: string): string | null {
+  const [exe, ...args] = command.split(" ").filter(Boolean);
+  if (!exe) return null;
+  const base = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+  if (!INTERPRETER.test(base(exe))) return base(exe);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-m" && args[i + 1]) return args[i + 1];
+    // code on the command line has no script to name
+    if (INLINE_CODE.has(args[i])) return base(exe);
+    if (args[i] === "run" && base(exe) === "deno") continue;
+    if (TAKES_VALUE.has(args[i])) {
+      i++;
+      continue;
+    }
+    if (!args[i].startsWith("-")) return base(args[i]).replace(/\.(c|m)?(j|t)s$|\.py$/, "");
+  }
+  return base(exe);
+}
 
 function memo<T>(load: (pid: number) => T): (pid: number) => T {
   const seen = new Map<number, T>();
