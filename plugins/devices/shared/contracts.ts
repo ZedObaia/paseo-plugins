@@ -22,6 +22,8 @@ const device = z.object({
   kind: z.enum(["simulator", "emulator", "avd", "physical"]),
   // created by this plugin for a workspace: offered for deletion
   owned: z.boolean(),
+  // agents may drive it: allowed by the user, since agent-device installs helpers on it first
+  agentTools: z.boolean(),
   // why the last boot failed, until the next attempt
   error: z.string().nullable(),
 });
@@ -64,6 +66,16 @@ export const createRpc = defineRpc({
   name: "devices.create",
   input: workspace.extend({ from: deviceId }),
   output: z.object({ deviceId, message: z.string() }),
+});
+
+/**
+ * Lets agents drive a device, or stops that. The first time an agent uses a device, agent-device
+ * installs its helpers on it, so the user allows it explicitly.
+ */
+export const agentToolsRpc = defineRpc({
+  name: "devices.agent-tools",
+  input: z.object({ deviceId, allow: z.boolean() }),
+  output: z.object({ message: z.string() }),
 });
 
 export const powerRpc = defineRpc({

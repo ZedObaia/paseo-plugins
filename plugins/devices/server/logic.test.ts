@@ -56,6 +56,7 @@ test("featured devices: on, held, owned, Android, and newest-iOS iPhones", () =>
     state: "shutdown",
     kind: "simulator",
     owned: false,
+    agentTools: false,
     error: null,
     ...extra,
   });
@@ -86,4 +87,20 @@ test("typing: US keyboard usages, shift around capitals and symbols", async () =
   );
   assert.equal(keyEvents("hi there\r\n").length, 18);
   assert.throws(() => keyEvents("é"), /can't type "é"/);
+});
+
+test("agent tools are off until allowed per device, and forgotten with a deleted copy", async () => {
+  assert.equal(state.agentToolsAllowed("ios:5"), false);
+  await state.allowAgentTools("ios:5", true);
+  assert.equal(state.agentToolsAllowed("ios:5"), true);
+  await state.allowAgentTools("ios:5", false);
+  assert.equal(state.agentToolsAllowed("ios:5"), false);
+  await state.setOwned("android:emulator-5556", true);
+  await state.allowAgentTools("android:emulator-5556", true);
+  await state.setOwned("android:emulator-5556", false);
+  assert.equal(state.agentToolsAllowed("android:emulator-5556"), false);
+});
+
+test("every RPC contract is valid (defineRpc throws on load otherwise)", async () => {
+  await assert.doesNotReject(import("../shared/contracts"));
 });

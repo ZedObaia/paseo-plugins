@@ -76,14 +76,14 @@ function runningEmulators(): Map<number, Running> {
 /** A "New copy": an extra read-only instance of an AVD that this plugin started for a workspace. */
 const isCopy = (serial: string) => isOwned(`android:${serial}`);
 
-export async function listAndroid(): Promise<Omit<Device, "owned" | "error">[]> {
+export async function listAndroid(): Promise<Omit<Device, "owned" | "agentTools" | "error">[]> {
   const [devicesText, avdText] = await Promise.all([
     adb(["devices", "-l"]),
     existsSync(EMULATOR) ? run(EMULATOR, ["-list-avds"]).catch(() => "") : Promise.resolve(""),
   ]);
   const running = runningEmulators();
   const primary = new Map<string, string>(); // AVD name -> serial of its normal instance
-  const result: Omit<Device, "owned" | "error">[] = [];
+  const result: Omit<Device, "owned" | "agentTools" | "error">[] = [];
   for (const line of devicesText.split("\n").slice(1)) {
     const [serial, status] = line.trim().split(/\s+/);
     // a serial the contract can't carry (`adb connect [fe80::1]:5555`) would fail the whole list

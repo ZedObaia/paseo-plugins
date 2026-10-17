@@ -4,7 +4,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { Assignment } from "../shared/contracts";
 import { serialOf } from "./android";
 import { NODE, NODE_ENV, dependencyFile } from "./paths";
-import { STATE_DIR, assignmentFor, assignments } from "./state";
+import { STATE_DIR, agentToolsAllowed, assignmentFor, assignments } from "./state";
 
 const AGENT_DEVICE = dependencyFile("agent-device", "bin/agent-device.mjs");
 const CONFIG_DIR = path.join(STATE_DIR, "agent-device");
@@ -57,14 +57,17 @@ export function syncAgentConfigs(): Promise<void> {
   return syncing;
 }
 
-/** Agents started in a workspace that has a device get agent-device's MCP tools for it. */
+/**
+ * Agents started in a workspace get agent-device's MCP tools for its device once the user has
+ * allowed agent tools on that device: agent-device installs its helpers there on first use.
+ */
 export function injectDeviceTools(server: PluginServerContext, ready: Promise<void>) {
   server.before("agent.create", async ({ request }) => {
     // Paseo's own background agents (commit messages, PR descriptions) don't drive devices
     if (request.config.internal) return undefined;
     await ready;
     const assignment = assignmentFor(request.config.cwd);
-    if (!assignment) return undefined;
+    if (!assignment || !agentToolsAllowed(assignment.deviceId)) return undefined;
     // picks up an emulator started outside the plugin since the last change
     await syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error));
     return {

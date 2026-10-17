@@ -15,9 +15,11 @@ interface State {
   assignments: Assignment[];
   // devices this plugin created (simulators, extra emulator instances): offered for deletion
   owned: string[];
+  // devices the user let agents drive (agent-device installs its helpers on first use)
+  agentTools: string[];
 }
 
-let state: State = { assignments: [], owned: [] };
+let state: State = { assignments: [], owned: [], agentTools: [] };
 
 export async function loadState(): Promise<void> {
   try {
@@ -43,6 +45,13 @@ function save(): Promise<void> {
 export const assignments = (): readonly Assignment[] => state.assignments;
 export const owned = (): readonly string[] => state.owned;
 export const isOwned = (deviceId: string) => state.owned.includes(deviceId);
+export const agentToolsAllowed = (deviceId: string) => state.agentTools.includes(deviceId);
+
+export async function allowAgentTools(deviceId: string, allow: boolean): Promise<void> {
+  state.agentTools = state.agentTools.filter((id) => id !== deviceId);
+  if (allow) state.agentTools.push(deviceId);
+  await save();
+}
 export const holderOf = (deviceId: string) => state.assignments.find((a) => a.deviceId === deviceId);
 
 export async function setAssignment(
@@ -68,7 +77,11 @@ export async function setAssignment(
 export async function setOwned(deviceId: string, owned: boolean): Promise<void> {
   state.owned = state.owned.filter((id) => id !== deviceId);
   if (owned) state.owned.push(deviceId);
-  else state.assignments = state.assignments.filter((a) => a.deviceId !== deviceId);
+  else {
+    // a copy that's gone for good: its id may come back as a different emulator
+    state.assignments = state.assignments.filter((a) => a.deviceId !== deviceId);
+    state.agentTools = state.agentTools.filter((id) => id !== deviceId);
+  }
   await save();
 }
 

@@ -7,11 +7,12 @@ with that workspace: another workspace sees it as in use and has to take it over
 press **New copy** to get its own simulator (same model and iOS version) or another instance of
 the same emulator. Several devices run at once, so parallel workspaces each test on their own.
 
-Agents started in a workspace that has a device get [agent-device](https://github.com/callstack/agent-device)
-tools for it: accessibility snapshots, taps, typing, app launches and screenshots. They only reach
-that workspace's device. When it is released, taken over or deleted, their device tools stop
-working; an emulator that is off can't be driven until it is turned on. Assign the device before
-starting the agent.
+Agents can drive a workspace's device with [agent-device](https://github.com/callstack/agent-device)
+tools: accessibility snapshots, taps, typing, app launches and screenshots. Agent tools are off
+until you allow them on a device from its panel, which first explains what agent-device will
+install there. Agents started in the workspace after that get the tools, and they only reach that
+workspace's device. When it is released, taken over or deleted, their device tools stop working;
+an emulator that is off can't be driven until it is turned on.
 
 The **Devices** screen lists every simulator and emulator on the host, which workspace holds it,
 and turns them on or off. Devices made with New copy can be deleted there. An emulator copy runs
@@ -40,8 +41,10 @@ Frames and input travel between the host and your Paseo apps. What agents read t
 tools, including screenshots and screen text, is sent to the agent's model provider like any other
 tool result.
 
-The first time an agent drives a device, agent-device installs its helper on it: an XCTest runner
-app it builds locally with Xcode for iOS, and two helper apps it ships with for Android. Nothing is
-downloaded while the plugin runs.
+The first time an agent drives a device, agent-device installs its helpers on it: an XCTest runner
+app it builds locally with Xcode for iOS, and two helper apps it ships with for Android (one reads
+the screen's layout, one is a keyboard for typing). This only happens on a device you allowed agent
+tools on; turning them off doesn't remove helpers already installed. Nothing is downloaded while
+the plugin runs.
 
 The picture is a stream of still frames, several per second, not video.

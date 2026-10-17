@@ -26,11 +26,11 @@ export async function iosAvailability(): Promise<{ available: boolean; reason: s
 type SimctlDevice = { udid: string; name: string; state: string; deviceTypeIdentifier: string };
 const kinds = new Map<string, { type: string; runtime: string }>();
 
-export async function listIos(): Promise<Omit<Device, "owned" | "error">[]> {
+export async function listIos(): Promise<Omit<Device, "owned" | "agentTools" | "error">[]> {
   const json = JSON.parse(await simctl(["list", "devices", "available", "-j"])) as {
     devices: Record<string, SimctlDevice[]>;
   };
-  const result: Omit<Device, "owned" | "error">[] = [];
+  const result: Omit<Device, "owned" | "agentTools" | "error">[] = [];
   for (const [runtime, devices] of Object.entries(json.devices)) {
     if (!runtime.includes("SimRuntime.iOS-")) continue;
     const version = runtime.replace(/^.*SimRuntime\.iOS-/, "").replace(/-/g, ".");

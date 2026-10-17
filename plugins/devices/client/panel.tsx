@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
-import { Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { inputRpc, type Assignment, type Device } from "../shared/contracts";
@@ -55,6 +55,7 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
             landscape={landscape}
             onChange={() => setPicking(true)}
           />
+          <AgentTools theme={theme} hostId={host.id} device={device} />
           {device.state === "booted" ? (
             // keyed: a new device starts with an empty picture, not taps on the old one's
             <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={setLandscape} />
@@ -74,12 +75,73 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
             Pick a device for {ws.name}
           </Text>
           <Text style={{ color: c.foregroundMuted }}>
-            It stays with this workspace: other workspaces can't take it without asking, and agents you start
-            here get tools to drive it.
+            It stays with this workspace: other workspaces can't take it without asking. Once you allow agent
+            tools on it, agents you start here can drive it too.
           </Text>
           {picker}
         </ScrollView>
       )}
+    </View>
+  );
+}
+
+/** What agent-device installs on a device the first time an agent drives it. */
+const installs = (device: Device) =>
+  device.platform === "ios"
+    ? "agent-device builds its XCTest runner app with Xcode on this Mac and installs it on the simulator."
+    : `agent-device installs two helper apps it ships with on the ${device.kind === "physical" ? "phone" : "emulator"}: one that reads the screen's layout and one keyboard for typing.`;
+
+/**
+ * Whether agents started in this workspace get tools to drive the device. Off until the user allows
+ * it here: the first time an agent uses a device, agent-device installs its helpers on it.
+ */
+function AgentTools({ theme, hostId, device }: { theme: PluginTheme; hostId: string; device: Device }) {
+  const { agentTools } = useDeviceRpcs();
+  const { busy, perform } = useAction(hostId);
+  const [asking, setAsking] = useState(false);
+  const c = theme.colors;
+  const set = async (allow: boolean) => {
+    if (await perform(() => agentTools({ deviceId: device.id, allow }))) setAsking(false);
+  };
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <Icon name={device.agentTools ? "Bot" : "BotOff"} size={14} color={c.foregroundMuted} />
+      <Text style={{ color: c.foregroundMuted, fontSize: 12, flex: 1, minWidth: 160 }}>
+        {device.agentTools
+          ? "Agents you start in this workspace can drive this device."
+          : "Agents can't drive this device yet."}
+      </Text>
+      {device.agentTools ? (
+        <Button theme={theme} label="Turn off" disabled={busy} onPress={() => void set(false)} />
+      ) : (
+        <Button theme={theme} icon="Bot" label="Set up agent tools" onPress={() => setAsking(true)} />
+      )}
+      <Modal
+        title="Let agents drive this device?"
+        open={asking}
+        onOpenChange={(open) => !open && !busy && setAsking(false)}
+      >
+        <Modal.Content>
+          <Text style={{ color: c.foreground, lineHeight: 20 }}>
+            Agents you start in this workspace get agent-device tools to read, tap and type on {device.name}.
+            The first time one does, {installs(device)} Nothing is downloaded.
+          </Text>
+          <Text style={{ color: c.foregroundMuted, lineHeight: 20 }}>
+            Agents already running don't get the tools; start a new one. Turning this off later stops new
+            agents from getting them; helpers already installed stay on the device.
+          </Text>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+            <Button theme={theme} label="Not now" disabled={busy} onPress={() => setAsking(false)} />
+            <Button
+              theme={theme}
+              primary
+              label="Allow agent tools"
+              disabled={busy}
+              onPress={() => void set(true)}
+            />
+          </View>
+        </Modal.Content>
+      </Modal>
     </View>
   );
 }

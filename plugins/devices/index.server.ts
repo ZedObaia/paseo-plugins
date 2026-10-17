@@ -1,13 +1,31 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { assignRpc, createRpc, frameRpc, inputRpc, listRpc, powerRpc, type Device } from "./shared/contracts";
+import {
+  agentToolsRpc,
+  assignRpc,
+  createRpc,
+  frameRpc,
+  inputRpc,
+  listRpc,
+  powerRpc,
+  type Device,
+} from "./shared/contracts";
 import * as android from "./server/android";
 import { injectDeviceTools, syncAgentConfigs } from "./server/agents";
 import { encode, forget, type Frame } from "./server/frames";
 import * as ios from "./server/ios";
-import { assignments, isOwned, loadState, owned, setAssignment, setOwned } from "./server/state";
+import {
+  agentToolsAllowed,
+  allowAgentTools,
+  assignments,
+  isOwned,
+  loadState,
+  owned,
+  setAssignment,
+  setOwned,
+} from "./server/state";
 
 type Platform = { available: boolean; reason: string };
-type Listed = Omit<Device, "owned" | "error">;
+type Listed = Omit<Device, "owned" | "agentTools" | "error">;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -103,6 +121,7 @@ function withStatus(listed: Listed[]): Device[] {
       ...d,
       state: booting.has(d.id) ? "booting" : d.state,
       owned: isOwned(d.id),
+      agentTools: agentToolsAllowed(d.id),
       error: failures.get(d.id) ?? null,
     };
   });
@@ -119,6 +138,7 @@ function withStatus(listed: Listed[]): Device[] {
       state: booting.has(id) ? "booting" : "shutdown",
       kind: platform === "ios" ? "simulator" : "emulator",
       owned: isOwned(id),
+      agentTools: agentToolsAllowed(id),
       error: failures.get(id) ?? null,
     });
   }
@@ -191,6 +211,19 @@ export default function contribute(server: PluginServerContext) {
     const result = await setAssignment(workspace, deviceId, takeOver);
     await syncAgentConfigs();
     return { message: result };
+  });
+
+  server.handle(agentToolsRpc, async ({ deviceId, allow }) => {
+    await ready;
+    if (allow && !(await listDevices()).devices.some((d) => d.id === deviceId)) {
+      throw new Error("That device isn't on this host");
+    }
+    await allowAgentTools(deviceId, allow);
+    return {
+      message: allow
+        ? "Agents you start in its workspace from now on can drive it"
+        : "Agents you start from now on won't get tools for it",
+    };
   });
 
   // An archived workspace gives its device back. One made for it ("New copy") is turned off, not
