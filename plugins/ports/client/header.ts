@@ -6,7 +6,7 @@ import {
 } from "@getpaseo/plugin/client";
 import { forwardRpc, scanRpc, type Port } from "../shared/contracts";
 import { portName, portUrl } from "./data";
-import { panelLocation } from "./location";
+import { portsPanel } from "./location";
 
 const POLL_MS = 5_000;
 
@@ -38,7 +38,10 @@ function button(client: PluginClientContext, workspaceId: string, ports: Port[])
           icon: "PanelRight",
           behavior: {
             kind: "action",
-            onPress: () => client.openPanel("ports", { workspaceId, location: panelLocation() }),
+            onPress() {
+              const { id, location } = portsPanel();
+              client.openPanel(id, { workspaceId, location });
+            },
           },
         },
       ],

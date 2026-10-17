@@ -5,11 +5,13 @@ import { Dimensions, Platform } from "react-native";
 const EXPLORER_PANE_MIN_WIDTH = 720;
 
 /**
- * Where "Show ports" opens the panel: in the Explorer where Paseo shows it as a side pane, and as
- * a workspace tab elsewhere. On phones and narrow windows the Explorer is an overlay that plugin
- * panels can't open into, so opening one there shows nothing.
+ * Which Ports panel "Show ports" opens, and where. Paseo shows the Explorer as a side pane only in
+ * its web and desktop apps at 720 px and wider; on phones and narrow windows it's an overlay that
+ * plugin panels can't open into. There the panel opens as a workspace tab instead, under its own
+ * ID: opening a tab that already exists finds it where it was, and a Ports tab once opened into
+ * the Explorer would be found there, out of sight.
  */
-export const panelLocation = (): PluginPanelLocation =>
-  Platform.OS === "web" && Dimensions.get("window").width >= EXPLORER_PANE_MIN_WIDTH
-    ? "explorer"
-    : "workspace";
+export function portsPanel(): { id: "ports" | "ports-tab"; location: PluginPanelLocation } {
+  const explorer = Platform.OS === "web" && Dimensions.get("window").width >= EXPLORER_PANE_MIN_WIDTH;
+  return explorer ? { id: "ports", location: "explorer" } : { id: "ports-tab", location: "workspace" };
+}
