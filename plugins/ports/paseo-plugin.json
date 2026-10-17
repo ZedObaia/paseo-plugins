@@ -2,6 +2,7 @@
   "id": "ports",
   "name": "Ports",
   "description": "Open ports of each workspace, with links to open them and sharing over Tailscale or a Cloudflare tunnel.",
+  "icon": "assets/icon.png",
   "requirements": {
     "paseo": ">=0.11.4"
   }

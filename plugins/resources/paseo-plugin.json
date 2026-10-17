@@ -2,6 +2,7 @@
   "id": "resources",
   "name": "Resources",
   "description": "CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions.",
+  "icon": "assets/icon.png",
   "media": ["assets/overview.png", "assets/docker.png", "assets/phone.png"],
   "requirements": {
     "paseo": ">=0.11.4"
