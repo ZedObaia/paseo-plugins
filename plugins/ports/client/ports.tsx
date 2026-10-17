@@ -27,6 +27,8 @@ interface Actions {
   endLinks(port: Port): void;
   /** Allows links for a port that doesn't get them by default, or takes that back. */
   allow(port: Port, allowed: boolean): void;
+  /** Asks a database's or cache's port what it speaks after all, or goes back to skipping it. */
+  check(port: Port, checked: boolean): void;
 }
 
 /** Works now, or once the plugin downloads what it needs. */
@@ -304,6 +306,18 @@ function PortItem({
             {port.detail}
           </Text>
         ) : null}
+        {port.checked ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={small}>Checked on request</Text>
+            <TextAction
+              theme={theme}
+              label="Undo"
+              accessibilityLabel={`Stop checking port ${port.port}`}
+              disabled={busy}
+              onPress={() => actions.check(port, false)}
+            />
+          </View>
+        ) : null}
         {port.allowed ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text style={small}>Links allowed by you</Text>
@@ -441,8 +455,9 @@ function OtherPortRow({
   const s = sizes(compact);
   const indent = s.icon + 8;
   const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
-  const note =
-    port.protocol === "unknown"
+  const note = port.skipped
+    ? "Not checked: a database or cache port."
+    : port.protocol === "unknown"
       ? "Hasn't answered as a web server yet."
       : port.protocol === "https"
         ? "Speaks HTTPS, which Ports doesn't make links for yet."
@@ -520,7 +535,27 @@ function OtherPortRow({
               disabled={busy}
               onPress={() => actions.allow(port, true)}
             />
+          ) : port.skipped ? (
+            <TextAction
+              theme={theme}
+              label="Check it"
+              accessibilityLabel={`Check whether port ${port.port} is a web server`}
+              disabled={busy}
+              onPress={() => actions.check(port, true)}
+            />
           ) : null}
+        </View>
+      ) : null}
+      {port.checked ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: indent }}>
+          <Text style={small}>Checked on request</Text>
+          <TextAction
+            theme={theme}
+            label="Undo"
+            accessibilityLabel={`Stop checking port ${port.port}`}
+            disabled={busy}
+            onPress={() => actions.check(port, false)}
+          />
         </View>
       ) : null}
       {leftover ? (
@@ -584,6 +619,15 @@ export function PortList({
   const ports = all.filter((port) => port.links);
   const others = webOnly ? [] : all.filter((port) => !port.links);
   const settings = useSettings(linkSettings);
+  /** Adds a port to one of the per-port lists in settings, or takes it out. */
+  const remember = async (list: "allowed" | "checked", port: Port, on: boolean) => {
+    if (settings.status !== "ready") throw new Error("Ports' settings haven't loaded yet. Try again.");
+    const ids = new Set(settings.values[list]);
+    if (on) ids.add(port.id);
+    else ids.delete(port.id);
+    if (!(await settings.save({ ...settings.values, [list]: [...ids] }, settings.revision)))
+      throw new Error("Couldn't save that. Try again.");
+  };
 
   const perform = async (port: Port, work: (update: (text: string) => void) => Promise<void>) => {
     if (pending.current.has(port.id)) return;
@@ -641,15 +685,8 @@ export function PortList({
         if (port.public) await rpcs.unshare({ workspaceId, id: port.id, level: "public" });
         if (port.private) await rpcs.unshare({ workspaceId, id: port.id, level: "private" });
       }),
-    allow: (port, allowed) =>
-      void perform(port, async () => {
-        if (settings.status !== "ready") throw new Error("Ports' settings haven't loaded yet. Try again.");
-        const ids = new Set(settings.values.allowed);
-        if (allowed) ids.add(port.id);
-        else ids.delete(port.id);
-        if (!(await settings.save({ ...settings.values, allowed: [...ids] }, settings.revision)))
-          throw new Error("Couldn't save that. Try again.");
-      }),
+    allow: (port, on) => void perform(port, () => remember("allowed", port, on)),
+    check: (port, on) => void perform(port, () => remember("checked", port, on)),
   };
 
   const muted = { color: c.foregroundMuted, fontSize: 13 };

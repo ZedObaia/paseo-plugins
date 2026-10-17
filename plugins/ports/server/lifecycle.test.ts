@@ -324,3 +324,37 @@ test("a port that stops qualifying for links loses its forward", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("ending a server's links stops their traffic at once, even with sharing busy", async () => {
+  const server = await serving("api");
+  const target = listener(portOf(server));
+  const forwards = new Forwards(new ListenerAccess(async () => [target], 0));
+  const dir = await mkdtemp(join(tmpdir(), "ports-end-"));
+  const shares = new Shares(forwards, new Records(join(dir, "shares.json")));
+  const proxy = await startProxy(target, null);
+  try {
+    const at = await forwards.open(target, "127.0.0.1");
+    const id = listenerId(target);
+    const record = { kind: "serve" as const, httpsPort: 1, target: proxy.url };
+    (shares as unknown as { privates: Map<string, unknown> }).privates.set(id, {
+      target,
+      proxy,
+      httpsPort: 1,
+      url: "https://box.example",
+      record,
+    });
+    // another sharing operation that never finishes holds the queue
+    void (shares as unknown as { serial(work: () => Promise<void>): Promise<void> }).serial(
+      () => new Promise(() => {}),
+    );
+    void shares.endLinks(id);
+    assert.equal([...forwards.entries()].length, 0);
+    assert.equal((await fetch(proxy.url)).status, 503);
+    await assert.rejects(fetch(`http://127.0.0.1:${at}`));
+  } finally {
+    proxy.close();
+    forwards.closeAll();
+    await close(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -73,11 +73,20 @@ export function toPort(
   shared: Shared,
   service: string | null,
   tailnetHttps = false,
-  kind: { detection: Detection; links: boolean; allowable: boolean; allowed: boolean } = {
+  kind: {
+    detection: Detection;
+    links: boolean;
+    allowable: boolean;
+    allowed: boolean;
+    skipped: boolean;
+    checked: boolean;
+  } = {
     detection: { protocol: "http", page: true },
     links: true,
     allowable: false,
     allowed: false,
+    skipped: false,
+    checked: false,
   },
 ): Port {
   const local = isLoopback(host);
@@ -99,6 +108,8 @@ export function toPort(
     links: kind.links,
     allowable: kind.allowable,
     allowed: kind.allowed,
+    skipped: kind.skipped,
+    checked: kind.checked,
     reach: !loopback || local ? `${urlHost(at)}:${listener.port}` : null,
     needsLink: kind.links && !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
     private: shared.privateUrl
@@ -147,6 +158,8 @@ export async function scan(
       links: linkable(l, detection, allowed.has(id)),
       allowable: allowable(l, detection),
       allowed: allowed.has(id),
+      skipped: detections.skips(l),
+      checked: detections.checked.has(id),
     };
   };
   // a port that no longer gets links, because its answer changed or you took back your allowance,

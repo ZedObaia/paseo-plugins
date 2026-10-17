@@ -35,7 +35,7 @@ export function LinkSettings({ theme, host }: PluginSurfaceProps) {
           disabled={!changed || settings.saving}
           onPress={async () => {
             // keeps the rest of the document, like the ports you allowed links for
-            const values = settings.status === "ready" ? settings.values : { allowed: [] };
+            const values = settings.status === "ready" ? settings.values : { allowed: [], checked: [] };
             if (await settings.save({ ...values, linkHost: (draft ?? "").trim() }, settings.revision))
               setDraft(null);
           }}

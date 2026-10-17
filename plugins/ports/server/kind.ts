@@ -146,14 +146,25 @@ const instanceOf = (listener: Listener) => `${listener.source}:${listener.instan
  */
 export class Detections {
   private entries = new Map<string, Entry>();
+  /** Servers you asked to check though their port is a database's or cache's, by identity. */
+  checked: ReadonlySet<string> = new Set();
 
   constructor(
     private readonly ask: (listener: Listener) => Promise<Detection> = probe,
     private readonly now = () => Date.now(),
   ) {}
 
+  /** Not asked: a database's or cache's port, unless you asked to check it. */
+  skips(listener: Listener): boolean {
+    return this.known(listener) !== null;
+  }
+
+  private known(listener: Listener): Protocol | null {
+    return this.checked.has(listenerId(listener)) ? null : knownProtocol(listener);
+  }
+
   get(listener: Listener): Detection | undefined {
-    const known = knownProtocol(listener);
+    const known = this.known(listener);
     if (known) return { protocol: known, page: false };
     return this.entries.get(listenerId(listener))?.detection;
   }
@@ -168,7 +179,7 @@ export class Detections {
       listeners.map(async (listener) => {
         const id = listenerId(listener);
         seen.add(id);
-        if (knownProtocol(listener)) return;
+        if (this.known(listener)) return;
         const instance = instanceOf(listener);
         const entry = this.entries.get(id);
         if (entry && entry.instance === instance && entry.next > this.now()) return;

@@ -15,6 +15,7 @@ import { listenerId } from "./server/identity";
 import { Forwards, linkHost } from "./server/links";
 import { scan, toPort, workspaceListener, type Scan } from "./server/scan";
 import type { Listener } from "./server/processes";
+import { stillLinkable } from "./server/policy";
 import { Shares } from "./server/shares";
 
 // Every open panel and header polls; a scan this recent answers them all.
@@ -37,10 +38,7 @@ export default function contribute(server: PluginServerContext) {
   let allowed: ReadonlySet<string> = new Set();
   const getsLinks = (listener: Listener) =>
     linkable(listener, detections.get(listener), allowed.has(listenerId(listener)));
-  shares.stillLinkable = async (target) => {
-    await detections.update([target], false);
-    return getsLinks(target);
-  };
+  shares.stillLinkable = stillLinkable(forwards.access, detections, () => allowed);
   let last: { at: number; scan: Scan } | undefined;
   let running: Promise<Scan> | undefined;
 
@@ -62,6 +60,7 @@ export default function contribute(server: PluginServerContext) {
   const keep = (state: Awaited<ReturnType<typeof settings.read>>) => {
     if (state.status !== "ready") return;
     allowed = new Set(state.values.allowed);
+    detections.checked = new Set(state.values.checked);
     last = undefined;
     if (state.values.linkHost === hostSetting) return;
     hostSetting = state.values.linkHost;

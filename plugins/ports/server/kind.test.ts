@@ -4,6 +4,7 @@ import { createServer as httpServer } from "node:http";
 import { createServer as tcpServer, type AddressInfo, type Server } from "node:net";
 import { test } from "node:test";
 import { allowable, detectReply, Detections, knownProtocol, linkable, probe, type Detection } from "./kind";
+import { listenerId } from "./identity";
 import type { Listener } from "./processes";
 
 const listener = (extra: Partial<Listener> = {}): Listener => ({
@@ -168,4 +169,18 @@ test("Detections keep a real answer through a missed one, and a restart's only f
   }
   await detections.update([restarted]);
   assert.deepEqual(detections.get(restarted), { protocol: "unknown", page: false });
+});
+
+test("a database's port you ask to check is asked like any other", async () => {
+  const app = listener({ port: 5432, name: "node", identity: "node api.js" });
+  const asked: number[] = [];
+  const detections = new Detections(async (l) => (asked.push(l.port), http(false)));
+  await detections.update([app]);
+  assert.equal(detections.skips(app), true);
+  assert.deepEqual(detections.get(app), { protocol: "other", page: false });
+  detections.checked = new Set([listenerId(app)]);
+  await detections.update([app]);
+  assert.equal(detections.skips(app), false);
+  assert.deepEqual(asked, [5432]);
+  assert.equal(linkable(app, detections.get(app), false), true);
 });

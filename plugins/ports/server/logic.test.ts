@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { canonicalAddress } from "./address";
-import { containerListeners, parsePorts } from "./docker";
+import { containerListeners, parsePorts, parseStartTimes } from "./docker";
 import { autoLinkHost } from "./links";
 import { parseLsofCwd, parseLsofListen, parsePsColumns } from "./lsof";
 import { assign } from "./match";
@@ -270,10 +270,31 @@ test("toPort gives a port that doesn't get links none, only where it can be reac
       links: false,
       allowable: false,
       allowed: false,
+      skipped: true,
+      checked: false,
     });
     return [p.links, p.protocol, p.needsLink, p.reach];
   };
   assert.deepEqual(db("0.0.0.0", "100.1.2.3"), [false, "other", false, "100.1.2.3:5432"]);
   assert.deepEqual(db("127.0.0.1", "100.1.2.3"), [false, "other", false, null]);
   assert.deepEqual(db("127.0.0.1", "localhost"), [false, "other", false, "localhost:5432"]);
+});
+
+test("a container's instance is its ID and start time, so a restart is a new one", () => {
+  const times = parseStartTimes(
+    "101e409e8482a3f4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c 2026-10-16T21:11:23.692619469Z\n",
+  );
+  assert.deepEqual([...times], [["101e409e8482", "2026-10-16T21:11:23.692619469Z"]]);
+  const row = {
+    ID: "101e409e8482",
+    Names: "app-web-1",
+    Image: "web",
+    Ports: "0.0.0.0:8080->80/tcp",
+    Service: "web",
+    WorkingDir: "/w",
+  };
+  const [before] = containerListeners(row, "2026-10-16T21:11:23.692619469Z");
+  const [after] = containerListeners(row, "2026-10-17T09:00:00.000000000Z");
+  assert.equal(before.instance, "101e409e8482@2026-10-16T21:11:23.692619469Z");
+  assert.notEqual(before.instance, after.instance);
 });

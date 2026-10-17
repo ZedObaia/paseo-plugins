@@ -491,9 +491,16 @@ export class Shares {
   }
 
   /** Ends every link to a server: its public link, then its tailnet link or forward. */
+  /**
+   * Ends every link to a server. Both levels stop carrying traffic before this returns its
+   * promise; removing them from Tailscale and stopping the tunnel wait their turn behind other
+   * sharing work.
+   */
   async endLinks(id: string): Promise<void> {
-    await this.unshare(id, "public").catch((error) => console.error(`ending public link failed:`, error));
-    await this.unshare(id, "private").catch((error) => console.error(`ending private link failed:`, error));
+    const ending = [this.unshare(id, "public"), this.unshare(id, "private")];
+    await Promise.all(
+      ending.map((done) => done.catch((error) => console.error("ending a link failed:", error))),
+    );
   }
 
   private async check(): Promise<void> {
@@ -531,12 +538,7 @@ export class Shares {
       if (status !== "replaced" && now - since < GONE_AFTER_MS) continue;
       this.missingSince.delete(port);
       console.log(`port ${target.port} stopped or changed owner; ending its shares`);
-      await this.unshare(port, "public").catch((error) =>
-        console.error(`ending public share ${port} failed:`, error),
-      );
-      await this.unshare(port, "private").catch((error) =>
-        console.error(`ending private share ${port} failed:`, error),
-      );
+      await this.endLinks(port);
     }
   }
 }

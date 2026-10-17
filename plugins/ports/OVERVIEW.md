@@ -34,8 +34,9 @@ HTTP:
   ports, like MinIO's storage API, are listed under **Other ports** with **Allow links**; **Undo**
   takes that back.
 - Databases, caches and queues get no links. Ports knows the common ones by program and default
-  port (Postgres, MySQL, Redis, MongoDB, Memcached, AMQP and others) and never contacts those.
-  Their programs' other ports are asked like any port, so RabbitMQ's management page gets links.
+  port (Postgres, MySQL, Redis, MongoDB, Memcached, AMQP and others) and doesn't contact those;
+  **Check it** asks one anyway, for an app that runs on such a port, and **Undo** goes back. Their
+  programs' other ports are asked like any port, so RabbitMQ's management page gets links.
 - Servers that only speak HTTPS are listed but get no links yet.
 
 A port that hasn't answered gets no links; Ports asks again, waiting longer each time. An answer

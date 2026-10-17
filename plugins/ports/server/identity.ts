@@ -46,6 +46,19 @@ export class ListenerAccess {
     return listeners;
   }
 
+  /**
+   * The listener holding the target's binding now, if it's still the same server: it has the
+   * current pid or container instance, which the target, saved when its link was made, may not.
+   */
+  async current(target: Listener): Promise<Listener | null> {
+    const listeners = await this.listeners(target.source);
+    const id = listenerId(target);
+    return (
+      listeners.find((l) => l.address === target.address && l.port === target.port && listenerId(l) === id) ??
+      null
+    );
+  }
+
   async status(target: Listener): Promise<"present" | "missing" | "replaced"> {
     const listeners = await this.listeners(target.source);
     const at = listeners.filter((l) => l.address === target.address && l.port === target.port);

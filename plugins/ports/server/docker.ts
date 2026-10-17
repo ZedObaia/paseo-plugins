@@ -47,8 +47,24 @@ export function parsePorts(text: string): { address: string; port: number; conta
   return ports;
 }
 
-/** A container's published ports, each at its widest bind, tied to its Compose project's directory. */
-export function containerListeners(row: PsRow): Listener[] {
+/**
+ * When each container last started, by short ID, from `docker inspect --format '{{.Id}}
+ * {{.State.StartedAt}}'`. A restarted container keeps its ID but not its start time.
+ */
+export function parseStartTimes(text: string): Map<string, string> {
+  const times = new Map<string, string>();
+  for (const line of text.split("\n")) {
+    const [id, startedAt] = line.trim().split(" ");
+    if (id && startedAt) times.set(id.slice(0, 12), startedAt);
+  }
+  return times;
+}
+
+/**
+ * A container's published ports, each at its widest bind, tied to its Compose project's directory.
+ * Its instance is its ID and start time: a new container, or a restart of this one, is a new one.
+ */
+export function containerListeners(row: PsRow, startedAt?: string): Listener[] {
   const widest = new Map<number, { address: string; containerPort: number }>();
   for (const { address, port, containerPort } of parsePorts(row.Ports)) {
     const kept = widest.get(port);
@@ -57,7 +73,7 @@ export function containerListeners(row: PsRow): Listener[] {
   }
   return [...widest].map(([port, { address, containerPort }]) => ({
     identity: row.Names,
-    instance: row.ID,
+    instance: startedAt ? `${row.ID}@${startedAt}` : row.ID,
     port,
     address,
     containerPort,
@@ -78,10 +94,23 @@ export async function dockerListeners(): Promise<Listener[]> {
   try {
     const text = await run(DOCKER, ["ps", "--format", PS_FORMAT], 5_000);
     reported = false;
-    return text
+    const rows = text
       .split("\n")
       .filter((line) => line.trim())
-      .flatMap((line) => containerListeners(JSON.parse(line) as PsRow));
+      .map((line) => JSON.parse(line) as PsRow)
+      .filter((row) => row.Ports.includes("->"));
+    const ids = rows.flatMap((row) => (row.ID ? [row.ID] : []));
+    // without start times a restart only shows once its answer expires
+    const started = ids.length
+      ? parseStartTimes(
+          await run(DOCKER, ["inspect", "--format", "{{.Id}} {{.State.StartedAt}}", ...ids], 5_000).catch(
+            () => "",
+          ),
+        )
+      : new Map<string, string>();
+    return rows.flatMap((row) =>
+      containerListeners(row, row.ID ? started.get(row.ID.slice(0, 12)) : undefined),
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // without Docker there is nothing to say; a broken one is worth one line in the logs

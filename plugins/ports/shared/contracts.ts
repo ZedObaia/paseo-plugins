@@ -27,6 +27,10 @@ const port = z.object({
   allowable: z.boolean(),
   /** You allowed links for it. */
   allowed: z.boolean(),
+  /** Not asked what it speaks: a database's or cache's default port, or one of their programs. */
+  skipped: z.boolean(),
+  /** You asked to check it though it's a database's or cache's port. */
+  checked: z.boolean(),
   /** host:port it can be reached at as it is, without a forward; null when only this machine can. */
   reach: z.string().nullable(),
   /** Where your own devices open it. */
@@ -126,5 +130,7 @@ export const linkSettings = defineSettings({
     linkHost: z.string().default(""),
     /** Ports you allowed links for though they don't get them by default, by server identity. */
     allowed: z.array(z.string()).default([]),
+    /** Ports you asked to check for a web server though they're a database's or cache's, by server identity. */
+    checked: z.array(z.string()).default([]),
   }),
 });
