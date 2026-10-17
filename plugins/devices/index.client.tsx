@@ -2,6 +2,7 @@ import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plug
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
 import { isOn, useDevices } from "./client/data";
+import { devicePanel } from "./client/location";
 import { DevicePanel } from "./client/panel";
 import { DevicesScreen } from "./client/screen";
 
@@ -20,12 +21,21 @@ function DevicesItem({ theme, host, currentScreen, openScreen }: PluginSidebarIt
 }
 
 export default function contribute(client: PluginClientContext) {
+  // the same panel twice, so each "+" menu lists it once: see client/location.ts
+  client.addWorkspacePanel({
+    id: "device-explorer",
+    title: "Device",
+    icon: "Smartphone",
+    context: "workspace",
+    locations: ["explorer"],
+    Component: DevicePanel,
+  });
   client.addWorkspacePanel({
     id: "device",
     title: "Device",
     icon: "Smartphone",
     context: "workspace",
-    locations: ["workspace", "explorer"],
+    locations: ["workspace"],
     Component: DevicePanel,
   });
   client.addCommandCenterItem({
@@ -34,7 +44,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Smartphone",
     context: "workspace",
     onSelect({ openPanel }) {
-      openPanel("device");
+      const { id, location } = devicePanel();
+      openPanel(id, { location });
     },
   });
   client.addScreen({ id: "devices", title: "Devices", Component: DevicesScreen });

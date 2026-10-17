@@ -2,8 +2,10 @@ Devices puts iOS simulators and Android emulators inside Paseo, one per workspac
 view you can tap, swipe and type into from desktop or phone, and tools your agents use to drive
 the same device.
 
-Open a workspace's **Device** panel (or Command Center, "Open device") and pick a device. It stays
-with that workspace: another workspace sees it as in use and has to take it over explicitly, or
+Open **Device** from the Explorer's + menu, beside Files and Changes (or Command Center, "Open
+device"), and pick a device. It shows next to the agent, so you can watch both. On a phone or a
+narrow window it opens as a workspace tab, and the workspace's own + menu opens it as a tab
+anywhere. The device stays with that workspace: another workspace sees it as in use and has to take it over explicitly, or
 press **New copy** to get its own simulator (same model and iOS version) or another instance of
 the same emulator. Several devices run at once, so parallel workspaces each test on their own.
 

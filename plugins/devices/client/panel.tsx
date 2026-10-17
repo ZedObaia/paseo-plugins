@@ -214,7 +214,8 @@ function Toolbar({
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-      <View style={{ flex: 1, minWidth: 120 }}>
+      {/* narrow enough that an iPhone's buttons stay on one line in the Explorer */}
+      <View style={{ flex: 1, minWidth: 96 }}>
         <Text style={{ color: c.foreground, fontWeight: "600" }} numberOfLines={1}>
           {device.name}
         </Text>
