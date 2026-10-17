@@ -1,13 +1,6 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import {
-  forwardRpc,
-  scanRpc,
-  sharePrivateRpc,
-  sharePublicRpc,
-  unshareRpc,
-  type Port,
-} from "../shared/contracts";
+import { linkRpc, scanRpc, sharePublicRpc, unshareRpc, type Port } from "../shared/contracts";
 
 // The app shares one query cache between its plugins and hosts: keys start with the host.
 export const queryKey = (hostId: string) => [hostId, "ports", "scan"];
@@ -20,21 +13,16 @@ export function useScan(hostId: string) {
   return useQuery({ queryKey: queryKey(hostId), queryFn: () => scan({}), refetchInterval: POLL_MS });
 }
 
-/** The link to a port, forwarding it first when the app can't reach it as it is. */
+/** The link to a port, setting it up first when it needs that. */
 export async function portUrl(
   port: Port,
-  forward: (input: { port: number }) => Promise<{ url: string }>,
+  link: (input: { port: number }) => Promise<{ url: string }>,
 ): Promise<string> {
-  return port.needsForward ? (await forward({ port: port.port })).url : port.url;
+  return port.needsLink ? (await link({ port: port.port })).url : port.url;
 }
 
 export function usePortRpcs() {
-  return {
-    forward: useRpc(forwardRpc),
-    sharePrivate: useRpc(sharePrivateRpc),
-    sharePublic: useRpc(sharePublicRpc),
-    unshare: useRpc(unshareRpc),
-  };
+  return { link: useRpc(linkRpc), sharePublic: useRpc(sharePublicRpc), unshare: useRpc(unshareRpc) };
 }
 
 /** The Paseo service script's name, else the process or container name. */

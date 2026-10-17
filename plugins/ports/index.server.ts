@@ -1,15 +1,8 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import {
-  forwardRpc,
-  linkSettings,
-  scanRpc,
-  sharePrivateRpc,
-  sharePublicRpc,
-  unshareRpc,
-} from "./shared/contracts";
+import { linkRpc, linkSettings, scanRpc, sharePublicRpc, unshareRpc } from "./shared/contracts";
 import { isLoopback, urlHost } from "./server/address";
 import { Forwards, linkHost } from "./server/links";
-import { scan, type Scan } from "./server/scan";
+import { scan, toPort, type Scan } from "./server/scan";
 import { Shares } from "./server/shares";
 
 // Every open panel and header polls; a scan this recent answers them all.
@@ -54,34 +47,26 @@ export default function contribute(server: PluginServerContext) {
     if (!listener) throw new Error(`Nothing in a workspace listens on port ${port}`);
     return { listener, host: fresh.host };
   };
-  const forward = async (context: PluginHandlerContext, port: number) => {
-    const { listener, host } = await workspacePort(context, port);
-    if (!isLoopback(listener.address)) throw new Error(`Port ${port} doesn't need forwarding`);
-    if (isLoopback(host)) return `http://localhost:${port}`;
-    const at = await forwards.open(listener, host);
-    shares.watchForwards();
-    return `http://${urlHost(host)}:${at}`;
-  };
   const changed = <T>(result: T) => ((last = undefined), result);
 
   server.handle(scanRpc, async (_, context) => (await current(context)).output);
-  server.handle(forwardRpc, async ({ port }, context) => changed({ url: await forward(context, port) }));
-  server.handle(sharePrivateRpc, async ({ port }, context) => {
-    const { listener } = await workspacePort(context, port);
-    const url = await shares.sharePrivate(listener);
-    if (url) return changed({ url });
-    // no HTTPS on this tailnet: the link stays HTTP, forwarded when the server is on loopback
-    if (!isLoopback(listener.address)) {
-      const { https } = await shares.sharing();
-      throw new Error(https.reason ?? "Tailscale HTTPS isn't available");
+  server.handle(linkRpc, async ({ port }, context) => {
+    const { listener, host } = await workspacePort(context, port);
+    const https = await shares.sharePrivate(listener);
+    if (https) return changed({ url: https });
+    // no HTTPS on this tailnet: the link host, through a forward when the server is on loopback
+    if (isLoopback(listener.address) && !isLoopback(host)) {
+      const at = await forwards.open(listener, host);
+      shares.watchForwards();
+      return changed({ url: `http://${urlHost(host)}:${at}` });
     }
-    return changed({ url: await forward(context, port) });
+    return { url: toPort(listener, host, { forwardedAt: null, privateUrl: null, public: null }, null).url };
   });
   server.handle(sharePublicRpc, async ({ port, provider, access }, context) => {
     const { listener } = await workspacePort(context, port);
     return changed(await shares.sharePublic(listener, provider, access));
   });
-  server.handle(unshareRpc, async ({ port, level }) => changed((await shares.unshare(port, level), {})));
+  server.handle(unshareRpc, async ({ port }) => changed((await shares.unshare(port, "public"), {})));
 
   return async () => {
     unsubscribe();

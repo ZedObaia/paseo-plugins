@@ -51,12 +51,19 @@ export interface Shared {
 }
 
 /**
- * How the app opens a port. One shared privately over HTTPS opens at its tailnet name. Otherwise
- * one bound everywhere opens at the link host, and one bound to a single interface at that
- * interface's address. One bound to loopback only opens at localhost when the app runs on this
- * machine, and otherwise through a forward at the link host.
+ * How the app opens a port. One shared privately over HTTPS opens at its tailnet name, and where
+ * Tailscale has HTTPS every port gets that link when it's first opened. Otherwise one bound
+ * everywhere opens at the link host, and one bound to a single interface at that interface's
+ * address. One bound to loopback only opens at localhost when the app runs on this machine, and
+ * otherwise through a forward at the link host.
  */
-export function toPort(listener: Listener, host: string, shared: Shared, service: string | null): Port {
+export function toPort(
+  listener: Listener,
+  host: string,
+  shared: Shared,
+  service: string | null,
+  tailnetHttps = false,
+): Port {
   const local = isLoopback(host);
   const loopback = isLoopback(listener.address);
   const at =
@@ -71,7 +78,7 @@ export function toPort(listener: Listener, host: string, shared: Shared, service
     source: listener.source,
     service,
     url: shared.privateUrl ?? `http://${urlHost(at)}:${shared.forwardedAt ?? listener.port}`,
-    needsForward: loopback && !local && !forwarded && !shared.privateUrl,
+    needsLink: !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
     private: shared.privateUrl ? { https: true } : forwarded ? { https: false } : null,
     public: shared.public,
   };
@@ -105,6 +112,7 @@ export async function scan(paseo: Paseo, host: string, forwards: Forwards, share
         host,
         { forwardedAt: forwards.get(l.port)?.port ?? null, ...shares.describe(l.port) },
         services.get(id)?.find((s) => s.port === l.port)?.scriptName ?? null,
+        sharing.https.available,
       ),
     );
   }

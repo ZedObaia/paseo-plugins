@@ -235,7 +235,7 @@ test("toPort links each bind where the app can reach it", () => {
   const none: Shared = { forwardedAt: null, privateUrl: null, public: null };
   const at = (address: string, host: string, shared: Partial<Shared> = {}) => {
     const p = toPort(listener(5173, {}, address), host, { ...none, ...shared }, null);
-    return [p.url, p.needsForward, p.private];
+    return [p.url, p.needsLink, p.private];
   };
   assert.deepEqual(at("127.0.0.1", "localhost"), ["http://localhost:5173", false, null]);
   assert.deepEqual(at("::", "localhost"), ["http://localhost:5173", false, null]);
@@ -248,6 +248,9 @@ test("toPort links each bind where the app can reach it", () => {
     { https: false },
   ]);
   assert.deepEqual(at("::", "fd7a::1"), ["http://[fd7a::1]:5173", false, null]);
+  // with Tailscale HTTPS every port gets its tailnet link when it's first opened
+  const tailnet = toPort(listener(5173, {}, "0.0.0.0"), "100.1.2.3", none, null, true);
+  assert.deepEqual([tailnet.url, tailnet.needsLink], ["http://100.1.2.3:5173", true]);
   assert.deepEqual(at("::1", "100.1.2.3", { privateUrl: "https://box.tailnet.ts.net:5173" }), [
     "https://box.tailnet.ts.net:5173",
     false,

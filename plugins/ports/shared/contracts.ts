@@ -20,9 +20,9 @@ const port = z.object({
   service: z.string().nullable(),
   /** Where your own devices open it. */
   url: z.string(),
-  /** Bound to loopback on a host the app reaches over the network: opening it forwards it first. */
-  needsForward: z.boolean(),
-  /** Shared with your tailnet: over HTTPS by `tailscale serve`, or forwarded over HTTP. */
+  /** Opening it sets up its link first (see linkRpc); `url` is the link until then. */
+  needsLink: z.boolean(),
+  /** Reachable on your tailnet: over HTTPS by `tailscale serve`, or forwarded over HTTP. */
   private: z.object({ https: z.boolean() }).nullable(),
   /** Reachable by anyone with the link. */
   public: z.object({ url: z.string(), provider, access, password: z.string().nullable() }).nullable(),
@@ -60,16 +60,12 @@ export const scanRpc = defineRpc({
   }),
 });
 
-/** Makes a loopback-only port reachable at the link host over HTTP. */
-export const forwardRpc = defineRpc({
-  name: "ports.forward",
-  input: z.object({ port: z.number().int() }),
-  output: z.object({ url: z.string() }),
-});
-
-/** Shares a port with the tailnet: over HTTPS where Tailscale has it, else as a forward. */
-export const sharePrivateRpc = defineRpc({
-  name: "ports.share.private",
+/**
+ * The link your devices open a port at: HTTPS at the machine's tailnet name where Tailscale has
+ * it, else the link host, forwarded when the server only listens on loopback.
+ */
+export const linkRpc = defineRpc({
+  name: "ports.link",
   input: z.object({ port: z.number().int() }),
   output: z.object({ url: z.string() }),
 });
@@ -80,9 +76,10 @@ export const sharePublicRpc = defineRpc({
   output: z.object({ url: z.string(), password: z.string().nullable() }),
 });
 
+/** Stops a port's public link. */
 export const unshareRpc = defineRpc({
   name: "ports.unshare",
-  input: z.object({ port: z.number().int(), level: z.enum(["private", "public"]) }),
+  input: z.object({ port: z.number().int() }),
   output: z.object({}),
 });
 

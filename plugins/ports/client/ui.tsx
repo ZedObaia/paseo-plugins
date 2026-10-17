@@ -77,62 +77,42 @@ export function Button({
   );
 }
 
-export interface ChoiceOption<Value extends string> {
-  value: Value;
-  label: string;
-  /** A line under the label: what it means, or why it's unavailable. */
-  detail: string;
-  disabled?: boolean;
-}
-
-/** Options side by side (stacked on a phone); the selected one is outlined. */
-export function Choice<Value extends string>({
+export function Checkbox({
   theme,
-  compact,
+  checked,
   label,
-  options,
-  value,
+  detail,
   onChange,
 }: {
   theme: PluginTheme;
-  compact: boolean;
+  checked: boolean;
   label: string;
-  options: readonly ChoiceOption<Value>[];
-  value: Value;
-  onChange(value: Value): void;
+  detail?: string;
+  onChange(checked: boolean): void;
 }) {
   const c = theme.colors;
   return (
-    <View style={{ gap: 6 }} accessibilityRole="radiogroup" accessibilityLabel={label}>
-      <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{label}</Text>
-      <View style={{ flexDirection: compact ? "column" : "row", gap: 8 }}>
-        {options.map((option) => {
-          const selected = option.value === value;
-          return (
-            <Pressable
-              key={option.value}
-              accessibilityRole="radio"
-              accessibilityState={{ selected, disabled: !!option.disabled }}
-              accessibilityLabel={`${option.label}. ${option.detail}`}
-              disabled={option.disabled}
-              onPress={() => onChange(option.value)}
-              style={({ pressed }) => ({
-                flex: compact ? undefined : 1,
-                gap: 2,
-                padding: 10,
-                borderRadius: 8,
-                borderWidth: selected ? 2 : 1,
-                borderColor: selected ? c.accent : c.border,
-                backgroundColor: c.surface1,
-                opacity: option.disabled ? 0.55 : pressed ? 0.7 : 1,
-              })}
-            >
-              <Text style={{ color: c.foreground, fontSize: 13, fontWeight: "600" }}>{option.label}</Text>
-              <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{option.detail}</Text>
-            </Pressable>
-          );
-        })}
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={detail ? `${label}. ${detail}` : label}
+      onPress={() => onChange(!checked)}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 8,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Icon
+        name={checked ? "SquareCheck" : "Square"}
+        size={18}
+        color={checked ? c.accent : c.foregroundMuted}
+      />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: c.foreground, fontSize: 13 }}>{label}</Text>
+        {detail ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{detail}</Text> : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
