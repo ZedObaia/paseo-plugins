@@ -24,8 +24,16 @@ export function IconButton({
       accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => ({ padding: 6, borderRadius: 8, opacity: disabled ? 0.4 : pressed ? 0.6 : 1 })}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => ({
+        minWidth: 48,
+        minHeight: 48,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 6,
+        borderRadius: 8,
+        opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
+      })}
     >
       <Icon name={icon} size={16} color={color ?? theme.colors.foregroundMuted} />
     </Pressable>
@@ -56,10 +64,14 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={label}
       disabled={disabled}
+      accessibilityState={{ disabled }}
       onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
+        minHeight: 48,
+        maxWidth: "100%",
         alignSelf: "flex-start",
         gap: 6,
         paddingVertical: 7,
@@ -72,7 +84,7 @@ export function Button({
       })}
     >
       {icon ? <Icon name={icon} size={14} color={color} /> : null}
-      <Text style={{ color, fontSize: 13 }}>{label}</Text>
+      <Text style={{ color, fontSize: 13, flexShrink: 1 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -83,24 +95,28 @@ export function Checkbox({
   label,
   detail,
   onChange,
+  disabled,
 }: {
   theme: PluginTheme;
   checked: boolean;
   label: string;
   detail?: string;
   onChange(checked: boolean): void;
+  disabled?: boolean;
 }) {
   const c = theme.colors;
   return (
     <Pressable
       accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
+      accessibilityState={{ checked, disabled }}
+      disabled={disabled}
       accessibilityLabel={detail ? `${label}. ${detail}` : label}
       onPress={() => onChange(!checked)}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "flex-start",
         gap: 8,
+        minHeight: 48,
         opacity: pressed ? 0.7 : 1,
       })}
     >

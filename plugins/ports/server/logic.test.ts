@@ -75,6 +75,7 @@ test("containerListeners ties a Compose container to its project directory", () 
     WorkingDir: "/work/app",
   });
   assert.deepEqual(minio, {
+    identity: "app-minio-1",
     port: 9001,
     address: "0.0.0.0",
     name: "minio",

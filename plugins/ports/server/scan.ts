@@ -1,13 +1,14 @@
 import type { RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { realpathSync } from "node:fs";
-import type { Port, scanRpc } from "../shared/contracts";
+import type { Port, PortTarget, scanRpc } from "../shared/contracts";
 import { isLoopback, isWildcard, urlHost } from "./address";
 import { dockerListeners } from "./docker";
 import type { Forwards } from "./links";
 import { assign } from "./match";
 import { processListeners, type Listener } from "./processes";
 import type { Shares } from "./shares";
+import { listenerId } from "./identity";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Workspace = Awaited<ReturnType<Paseo["workspaces"]["list"]>>["entries"][number];
@@ -16,7 +17,14 @@ export interface Scan {
   output: RpcOutput<typeof scanRpc>;
   host: string;
   /** Ports some workspace holds: the only ones the plugin forwards or shares. */
-  attributed: Listener[];
+  attributed: Map<string, Listener[]>;
+}
+
+export function workspaceListener(attributed: Scan["attributed"], target: PortTarget): Listener {
+  const listener = attributed.get(target.workspaceId)?.find((l) => listenerId(l) === target.id);
+  if (!listener)
+    throw new Error("That server is no longer in this workspace. Refresh the ports and try again.");
+  return listener;
 }
 
 async function listWorkspaces(paseo: Paseo): Promise<Workspace[]> {
@@ -47,6 +55,7 @@ export interface Shared {
   forwardedAt: number | null;
   /** Its HTTPS address on the tailnet, when shared privately with `tailscale serve`. */
   privateUrl: string | null;
+  privateError?: string;
   public: Port["public"];
 }
 
@@ -70,6 +79,7 @@ export function toPort(
     isWildcard(listener.address) || (loopback && !local) ? host : loopback ? "localhost" : listener.address;
   const forwarded = shared.forwardedAt !== null;
   return {
+    id: listenerId(listener),
     port: listener.port,
     address: listener.address,
     name: listener.name,
@@ -79,7 +89,11 @@ export function toPort(
     service,
     url: shared.privateUrl ?? `http://${urlHost(at)}:${shared.forwardedAt ?? listener.port}`,
     needsLink: !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
-    private: shared.privateUrl ? { https: true } : forwarded ? { https: false } : null,
+    private: shared.privateUrl
+      ? { https: true, ...(shared.privateError ? { error: shared.privateError } : {}) }
+      : forwarded
+        ? { https: false }
+        : null,
     public: shared.public,
   };
 }
@@ -110,11 +124,11 @@ export async function scan(paseo: Paseo, host: string, forwards: Forwards, share
       toPort(
         l,
         host,
-        { forwardedAt: forwards.get(l.port)?.port ?? null, ...shares.describe(l.port) },
+        { forwardedAt: forwards.get(listenerId(l))?.port ?? null, ...shares.describe(listenerId(l)) },
         services.get(id)?.find((s) => s.port === l.port)?.scriptName ?? null,
         sharing.https.available,
       ),
     );
   }
-  return { output, host, attributed: [...assigned.values()].flat() };
+  return { output, host, attributed: assigned };
 }

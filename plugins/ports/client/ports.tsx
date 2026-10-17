@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import type { Access, Port, Provider, Sharing, SharingOption } from "../shared/contracts";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
@@ -15,7 +15,7 @@ interface Actions {
   copy(port: Port, what: string, text?: string): void;
   /** `download`: the user agreed to download cloudflared first. */
   publish(port: Port, provider: Provider, access: Access, download: boolean): void;
-  stop(port: Port): void;
+  stop(port: Port, level?: "private" | "public"): void;
 }
 
 /** Works now, or once the plugin downloads what it needs. */
@@ -73,6 +73,7 @@ function PublishForm({
         theme={theme}
         checked={password}
         onChange={setPassword}
+        disabled={busy}
         label="Ask for a password"
         detail="Untick it for webhooks and other services that can't log in."
       />
@@ -83,7 +84,12 @@ function PublishForm({
             ? "a random trycloudflare.com address, new each time. It can't stream Server-Sent Events."
             : `${sharing.tailnetName ?? "this machine's tailnet name"}, the same each time. Names under ts.net are listed publicly, so scanners find them.`}
           {usable(sharing[other]) ? (
-            <Text accessibilityRole="link" style={{ color: c.accent }} onPress={() => setProvider(other)}>
+            <Text
+              accessibilityRole="link"
+              accessibilityState={{ disabled: busy }}
+              style={{ color: c.accent }}
+              onPress={busy ? undefined : () => setProvider(other)}
+            >
               {provider === "cloudflare"
                 ? " Use a stable Tailscale address instead"
                 : " Use a random Cloudflare address instead"}
@@ -145,47 +151,58 @@ function PublicLink({
         backgroundColor: c.surface2,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <Icon name="Globe" size={14} color={c.statusWarning} />
-        <Text style={{ color: c.statusWarning, fontSize: 13, fontWeight: "600" }}>Public</Text>
+        <Text style={{ color: c.statusWarning, fontSize: 13, fontWeight: "600" }}>
+          {pub.error ? "Public access stopped" : "Public"}
+        </Text>
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
           {pub.provider === "funnel" ? "through Tailscale Funnel" : "through a Cloudflare tunnel"}
         </Text>
       </View>
+      {pub.error ? <Text style={{ color: c.statusDanger, fontSize: 13 }}>{pub.error}</Text> : null}
       <Text style={{ color: c.foreground, fontSize: 13 }} selectable>
         {hostOf(pub.url)}
       </Text>
-      <Text style={{ color: c.foregroundMuted, fontSize: 12 }} selectable>
-        {pub.password
-          ? `Password ${pub.password}, with any user name`
-          : "No password: anyone with the link can open it"}
-      </Text>
+      {!pub.error ? (
+        <Text style={{ color: c.foregroundMuted, fontSize: 12 }} selectable>
+          {pub.password
+            ? `Password ${pub.password}, with any user name`
+            : "No password: anyone with the link can open it"}
+        </Text>
+      ) : null}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Button
-          theme={theme}
-          icon="ExternalLink"
-          label="Open"
-          disabled={busy}
-          onPress={() => actions.open(port, inApp, pub.url)}
-        />
-        <Button
-          theme={theme}
-          icon="Copy"
-          label="Copy link"
-          onPress={() => actions.copy(port, "Public link", pub.url)}
-        />
-        {pub.password ? (
-          <Button
-            theme={theme}
-            icon="KeyRound"
-            label="Copy password"
-            onPress={() => actions.copy(port, "Password", pub.password!)}
-          />
+        {!pub.error ? (
+          <>
+            <Button
+              theme={theme}
+              icon="ExternalLink"
+              label="Open"
+              disabled={busy}
+              onPress={() => actions.open(port, inApp, pub.url)}
+            />
+            <Button
+              theme={theme}
+              icon="Copy"
+              label="Copy link"
+              disabled={busy}
+              onPress={() => actions.copy(port, "Public link", pub.url)}
+            />
+            {pub.password ? (
+              <Button
+                theme={theme}
+                icon="KeyRound"
+                label="Copy password"
+                disabled={busy}
+                onPress={() => actions.copy(port, "Password", pub.password!)}
+              />
+            ) : null}
+          </>
         ) : null}
         <Button
           theme={theme}
           icon="Square"
-          label="Stop"
+          label={pub.error ? "Retry cleanup" : "Stop public link"}
           danger
           disabled={busy}
           onPress={() => actions.stop(port)}
@@ -220,6 +237,14 @@ function PortItem({
   actions: Actions;
 }) {
   const c = theme.colors;
+  const local = /^https?:\/\/(?:localhost|127\.[\d.]+|\[::1\])(?::|\/|$)/.test(port.url);
+  const tailnet =
+    port.private?.https ||
+    (port.needsLink && sharing.https.available) ||
+    /(?:\.ts\.net|\/\/100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\/\/\[fd7a:)/.test(port.url);
+  const scope = tailnet ? "Tailnet" : local ? "Local" : "Network";
+  const forwards = port.private && !port.private.https;
+  const willForward = port.needsLink && !sharing.https.available;
   return (
     <View style={{ gap: 8, padding: 12, borderTopWidth: first ? 0 : 1, borderTopColor: c.border }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -234,6 +259,7 @@ function PortItem({
               {port.detail}
             </Text>
           ) : null}
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{scope}</Text>
           {port.private ? (
             <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1} selectable>
               {hostOf(port.url)}
@@ -242,6 +268,15 @@ function PortItem({
         </View>
         {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
       </View>
+      {willForward || forwards ? (
+        <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
+          {willForward ? "Opening or copying this link forwards the server to " : "Forwarding to "}
+          {hostOf(port.url)}. Anyone who can reach that address can use it without a password.
+        </Text>
+      ) : null}
+      {port.private?.error ? (
+        <Text style={{ color: c.statusDanger, fontSize: 13 }}>{port.private.error}</Text>
+      ) : null}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Button
           theme={theme}
@@ -274,6 +309,21 @@ function PortItem({
             label="Make public…"
             disabled={busy}
             onPress={() => setPublishing(true)}
+          />
+        ) : null}
+        {port.private ? (
+          <Button
+            theme={theme}
+            icon="Square"
+            label={
+              port.private.error
+                ? "Retry cleanup"
+                : port.private.https
+                  ? "Stop tailnet link"
+                  : "Stop forwarding"
+            }
+            disabled={busy}
+            onPress={() => actions.stop(port, "private")}
           />
         ) : null}
       </View>
@@ -316,20 +366,27 @@ export function PortList({
   const rpcs = usePortRpcs();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<number | null>(null);
-  const [publishing, setPublishing] = useState<number | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
+  const pending = useRef(new Set<string>());
+  const [publishing, setPublishing] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Record<string, string>>({});
   const ports = scan.data?.workspaces[workspaceId] ?? [];
 
-  const perform = async (port: Port, work: () => Promise<void>) => {
-    setBusy(port.port);
+  const perform = async (port: Port, work: (update: (text: string) => void) => Promise<void>) => {
+    if (pending.current.has(port.id)) return;
+    pending.current.add(port.id);
+    const update = (text: string) => setProgress((all) => ({ ...all, [port.id]: text }));
+    update("Working…");
     try {
-      await work();
+      await work(update);
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
-      setBusy(null);
-      setProgress(null);
+      pending.current.delete(port.id);
+      setProgress((all) => {
+        const next = { ...all };
+        delete next[port.id];
+        return next;
+      });
       // setting up a link or a public address changes the port
       void queryClient.invalidateQueries({ queryKey: queryKey(hostId) });
     }
@@ -337,42 +394,47 @@ export function PortList({
   const actions: Actions = {
     open: (port, inApp, url) =>
       void perform(port, async () => {
-        const target = url ?? (await portUrl(port, rpcs.link));
+        const target = url ?? (await portUrl(port, workspaceId, rpcs.link));
         if (inApp && openInApp) openInApp(target);
         else await openExternalUrl(target);
       }),
     copy: (port, what, text) =>
       void perform(port, async () => {
-        await copyText(text ?? (await portUrl(port, rpcs.link)));
+        await copyText(text ?? (await portUrl(port, workspaceId, rpcs.link)));
         toast.show(`${what} copied`, { variant: "success" });
       }),
     publish: (port, provider, access, download) =>
-      void perform(port, async () => {
+      void perform(port, async (update) => {
         if (download) {
-          setProgress("Downloading cloudflared…");
+          update("Downloading cloudflared…");
           // each call waits up to 40 s for the download to finish
           let done = false;
           for (let attempt = 0; attempt < 15 && !done; attempt++)
             done = (await rpcs.installCloudflared({})).done;
           if (!done) throw new Error("Downloading cloudflared is taking too long; try again later");
         }
-        setProgress("Making it public…");
-        const { url } = await rpcs.sharePublic({ port: port.port, provider, access });
-        setPublishing(null);
+        update("Making it public…");
+        const { url } = await rpcs.sharePublic({ workspaceId, id: port.id, provider, access });
+        setPublishing((current) => (current === port.id ? null : current));
         toast.show(`Port ${port.port} is public at ${hostOf(url)}`, { variant: "success" });
       }),
-    stop: (port) =>
+    stop: (port, level = "public") =>
       void perform(port, async () => {
-        await rpcs.unshare({ port: port.port });
+        await rpcs.unshare({ workspaceId, id: port.id, level });
       }),
   };
 
   const muted = { color: c.foregroundMuted, fontSize: 13 };
   if (scan.isPending) return <Text style={muted}>Looking for ports…</Text>;
-  if (scan.error)
+  if (scan.error && !scan.data)
     return <Text style={{ color: c.statusDanger, fontSize: 13 }}>{errorMessage(scan.error)}</Text>;
   return (
     <View style={{ gap: 10 }}>
+      {scan.error ? (
+        <Text style={{ color: c.statusWarning, fontSize: 13 }}>
+          Refresh failed. Showing the last known ports.
+        </Text>
+      ) : null}
       {scan.data?.error ? (
         <Text style={{ color: c.statusWarning, fontSize: 13 }}>{scan.data.error}</Text>
       ) : null}
@@ -393,16 +455,16 @@ export function PortList({
         >
           {ports.map((port, i) => (
             <PortItem
-              key={port.port}
+              key={port.id}
               theme={theme}
               port={port}
               sharing={scan.data!.sharing}
               first={i === 0}
-              busy={busy === port.port}
+              busy={!!progress[port.id]}
               inApp={!!openInApp}
-              publishing={publishing === port.port}
-              setPublishing={(on) => setPublishing(on ? port.port : null)}
-              progress={busy === port.port ? progress : null}
+              publishing={publishing === port.id}
+              setPublishing={(on) => setPublishing(on ? port.id : null)}
+              progress={progress[port.id] ?? null}
               actions={actions}
             />
           ))}

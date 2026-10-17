@@ -7,6 +7,7 @@ import {
   sharePublicRpc,
   unshareRpc,
   type Port,
+  type PortTarget,
 } from "../shared/contracts";
 
 // The app shares one query cache between its plugins and hosts: keys start with the host.
@@ -23,9 +24,10 @@ export function useScan(hostId: string) {
 /** The link to a port, setting it up first when it needs that. */
 export async function portUrl(
   port: Port,
-  link: (input: { port: number }) => Promise<{ url: string }>,
+  workspaceId: string,
+  link: (input: PortTarget) => Promise<{ url: string }>,
 ): Promise<string> {
-  return port.needsLink ? (await link({ port: port.port })).url : port.url;
+  return port.needsLink ? (await link({ workspaceId, id: port.id })).url : port.url;
 }
 
 export function usePortRpcs() {

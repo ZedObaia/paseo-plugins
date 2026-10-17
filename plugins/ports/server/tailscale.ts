@@ -192,12 +192,20 @@ export async function readTailscale(): Promise<TailscaleState> {
   }
   if (status.backendState !== "Running")
     return { ...empty, status, problem: `Tailscale isn't connected (it's ${status.backendState}).` };
-  const [config, prefs] = await Promise.all([
-    json(["serve", "status", "--json"]).then(parseServeConfig),
-    json(["debug", "prefs"]).catch(() => null),
-  ]);
-  const user = userInfo();
-  return { status, config, operator: canOperate(prefs, user, process.platform), problem: null };
+  try {
+    const [config, prefs] = await Promise.all([
+      json(["serve", "status", "--json"]).then(parseServeConfig),
+      json(["debug", "prefs"]).catch(() => null),
+    ]);
+    const user = userInfo();
+    return { status, config, operator: canOperate(prefs, user, process.platform), problem: null };
+  } catch (error) {
+    return {
+      ...empty,
+      status,
+      problem: `Couldn't read Tailscale's serve settings: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 /** Whether nothing holds `port` on any of these addresses. */

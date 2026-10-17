@@ -43,6 +43,7 @@ export function containerListeners(row: PsRow): Listener[] {
     if (kept === undefined || reach(address) > reach(kept)) widest.set(port, address);
   }
   return [...widest].map(([port, address]) => ({
+    identity: row.Names,
     port,
     address,
     name: row.Service || row.Names,

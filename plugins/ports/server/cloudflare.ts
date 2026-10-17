@@ -42,9 +42,11 @@ const REGISTERED = /Registered tunnel connection/;
 export function startQuickTunnel(
   target: string,
   onSpawn: (pid: number) => void,
-  timeoutMs = 45_000,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
 ): Promise<{ url: string; child: ChildProcess }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("Opening the public link was cancelled"));
     const binary = cloudflaredPath();
     if (!binary) return reject(new Error("cloudflared isn't installed"));
     const child = spawn(binary, ["tunnel", "--no-autoupdate", "--url", target], {
@@ -58,6 +60,7 @@ export function startQuickTunnel(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", aborted);
       child.kill();
       reject(error);
     };
@@ -65,6 +68,8 @@ export function startQuickTunnel(
       () => fail(new Error(`cloudflared didn't open a tunnel in ${timeoutMs / 1000} s`)),
       timeoutMs,
     );
+    const aborted = () => fail(new Error("Opening the public link was cancelled"));
+    signal?.addEventListener("abort", aborted, { once: true });
     child.once("error", (error) => fail(error));
     child.once("exit", (code) => {
       const last = log.trim().split("\n").slice(-2).join(" ");
@@ -79,6 +84,7 @@ export function startQuickTunnel(
       if (url && REGISTERED.test(log)) {
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener("abort", aborted);
         resolve({ url, child });
       }
     });

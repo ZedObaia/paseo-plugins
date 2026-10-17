@@ -94,6 +94,8 @@ export function newPassword(): string {
 export interface Proxy {
   /** http://127.0.0.1:<port>, what Tailscale or cloudflared sends traffic to. */
   url: string;
+  /** Refuses traffic while retaining the binding until external routes have been removed. */
+  block(): void;
   close(): void;
 }
 
@@ -105,20 +107,33 @@ export interface Proxy {
 export function startProxy(
   target: { address: string; port: number },
   password: string | null,
+  canConnect: () => Promise<boolean> = async () => true,
 ): Promise<Proxy> {
   const upstream = upstreamOf(target.address, target.port);
   const sockets = new Set<Socket>();
   const realm = `Port ${target.port}`;
+  let closed = false;
+  let blocked = false;
   const allowed = (req: IncomingMessage) =>
     password === null || authorized(req.headers.authorization, password);
 
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
+    if (blocked) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("This link has stopped.\n");
+      return;
+    }
     if (!allowed(req)) {
       res.writeHead(401, {
         "WWW-Authenticate": `Basic realm="${realm}", charset="UTF-8"`,
         "Content-Type": "text/plain; charset=utf-8",
       });
       res.end("This link needs a password.\n");
+      return;
+    }
+    if (!(await canConnect().catch(() => false)) || closed || blocked) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("The original server is no longer available.\n");
       return;
     }
     const publicOrigin = `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers.host ?? upstream.host}`;
@@ -155,13 +170,22 @@ export function startProxy(
     req.pipe(outgoing);
   });
 
-  server.on("upgrade", (req: IncomingMessage, socket: Socket, head: Buffer) => {
+  server.on("upgrade", async (req: IncomingMessage, socket: Socket, head: Buffer) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
+    socket.on("error", () => socket.destroy());
+    if (blocked) {
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     if (!allowed(req)) {
       socket.end(
         `HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm="${realm}"\r\nContent-Length: 0\r\n\r\n`,
       );
+      return;
+    }
+    if (!(await canConnect().catch(() => false)) || closed || blocked || socket.destroyed) {
+      socket.end("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
       return;
     }
     const outgoing = connect(upstream.port, upstream.connectTo);
@@ -194,7 +218,13 @@ export function startProxy(
       const port = typeof address === "object" && address ? address.port : 0;
       resolve({
         url: `http://127.0.0.1:${port}`,
+        block() {
+          blocked = true;
+          for (const socket of sockets) socket.destroy();
+        },
         close() {
+          blocked = true;
+          closed = true;
           server.close();
           for (const socket of sockets) socket.destroy();
         },

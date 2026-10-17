@@ -7,6 +7,7 @@ const access = z.enum(["open", "password"]);
 export type Access = z.infer<typeof access>;
 
 const port = z.object({
+  id: z.string(),
   port: z.number().int(),
   /** What the socket is bound to: 127.0.0.1, ::1, 0.0.0.0, ::, or one interface's address. */
   address: z.string(),
@@ -23,9 +24,17 @@ const port = z.object({
   /** Opening it sets up its link first (see linkRpc); `url` is the link until then. */
   needsLink: z.boolean(),
   /** Reachable on your tailnet: over HTTPS by `tailscale serve`, or forwarded over HTTP. */
-  private: z.object({ https: z.boolean() }).nullable(),
+  private: z.object({ https: z.boolean(), error: z.string().optional() }).nullable(),
   /** Reachable by anyone with the link. */
-  public: z.object({ url: z.string(), provider, access, password: z.string().nullable() }).nullable(),
+  public: z
+    .object({
+      url: z.string(),
+      provider,
+      access,
+      password: z.string().nullable(),
+      error: z.string().optional(),
+    })
+    .nullable(),
 });
 export type Port = z.infer<typeof port>;
 
@@ -48,6 +57,9 @@ const sharing = z.object({
 });
 export type Sharing = z.infer<typeof sharing>;
 
+const target = z.object({ workspaceId: z.string().min(1), id: z.string().min(1) });
+export type PortTarget = z.infer<typeof target>;
+
 export const scanRpc = defineRpc({
   name: "ports.scan",
   input: z.object({}),
@@ -68,13 +80,13 @@ export const scanRpc = defineRpc({
  */
 export const linkRpc = defineRpc({
   name: "ports.link",
-  input: z.object({ port: z.number().int() }),
+  input: target,
   output: z.object({ url: z.string() }),
 });
 
 export const sharePublicRpc = defineRpc({
   name: "ports.share.public",
-  input: z.object({ port: z.number().int(), provider, access }),
+  input: target.extend({ provider, access }),
   output: z.object({ url: z.string(), password: z.string().nullable() }),
 });
 
@@ -88,10 +100,10 @@ export const installCloudflaredRpc = defineRpc({
   output: z.object({ done: z.boolean() }),
 });
 
-/** Stops a port's public link. */
+/** Stops a link the plugin created. */
 export const unshareRpc = defineRpc({
   name: "ports.unshare",
-  input: z.object({ port: z.number().int() }),
+  input: target.extend({ level: z.enum(["private", "public"]).default("public") }),
   output: z.object({}),
 });
 

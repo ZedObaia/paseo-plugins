@@ -4,6 +4,11 @@ Center, "Show open ports") shows the same list, in the Explorer on desktop and a
 on phones. Each port has **Open**, **Copy link** and **Make public…**. Open uses Paseo's browser
 on the desktop app and your browser on the web and on phones.
 
+Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
+devices) or **Network** (anyone who can reach the machine), and a network forward says so before
+you open or copy it. **Stop tailnet link** or **Stop forwarding** removes the link Ports made,
+without stopping your server.
+
 ## How ports find their workspace
 
 Every few seconds the plugin reads the host's listening TCP ports and gives each one to a
@@ -43,6 +48,11 @@ Vite refuse host names they don't know, and passes the address the browser used 
 `X-Forwarded-Host`. It passes WebSocket upgrades through, so hot reload keeps working, and checks
 the password when a public link has one.
 
+Links belong to the server they were made for. Ports checks, at most a second out of date,
+that the same server still owns the port before passing traffic on: a restart of the same command
+in the same directory keeps its link, but another command, project or container that takes the
+port doesn't inherit it.
+
 ## Public links
 
 A port only becomes public when you press **Make public…**, read who will be able to open it, and
@@ -81,6 +91,10 @@ either differs. It keeps the program in `plugin-data/ports/bin` under Paseo's ho
 delete that folder to remove it.
 
 ## When links end
+
+Stop blocks traffic immediately, then removes the tunnel or Tailscale entry. If Tailscale refuses
+cleanup, the link stays visible as stopped with **Retry cleanup**, and the plugin keeps its
+recovery record. It also retries cleanup in the background.
 
 A public link ends when you stop it. Every link the plugin set up ends a few seconds after its
 server stops listening, and when the plugin stops, reloads or is disabled. Tailscale's serve

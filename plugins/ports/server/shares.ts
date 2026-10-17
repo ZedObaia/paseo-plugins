@@ -1,12 +1,13 @@
 import { execFileSync, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { connect } from "node:net";
 import { userInfo } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Access, Port, Provider, Sharing } from "../shared/contracts";
 import { cloudflareOption, startQuickTunnel } from "./cloudflare";
 import type { Forwards } from "./links";
 import type { Listener } from "./processes";
-import { newPassword, startProxy, upstreamOf, type Proxy } from "./proxy";
+import { newPassword, startProxy, type Proxy } from "./proxy";
+import { listenerId } from "./identity";
 import { leftoverPlan, Records, type ShareRecord } from "./records";
 import {
   chooseFunnelPort,
@@ -22,10 +23,7 @@ import {
   type TailscaleState,
 } from "./tailscale";
 
-interface Target {
-  address: string;
-  port: number;
-}
+type Target = Listener;
 
 interface PrivateShare {
   target: Target;
@@ -33,6 +31,7 @@ interface PrivateShare {
   httpsPort: number;
   url: string;
   record: ShareRecord;
+  error?: string;
 }
 
 interface PublicShare {
@@ -46,6 +45,7 @@ interface PublicShare {
   /** Funnel's port, or the tunnel process. */
   httpsPort: number | null;
   child: ChildProcess | null;
+  error?: string;
 }
 
 // A server that restarts (Vite does on a config change) is gone for a moment: only a port
@@ -68,37 +68,28 @@ function commandOf(pid: number): string | null {
  * A new quick tunnel's name takes a few seconds to resolve and route: wait until it answers, so
  * the first person to open the link doesn't get a DNS error. Any answer will do, a 401 included.
  */
-async function answering(url: string, timeoutMs = 20_000): Promise<void> {
+async function answering(url: string, signal: AbortSignal, timeoutMs = 15_000): Promise<void> {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), 5_000);
+    if (signal.aborted) throw new Error("Opening the public link was cancelled");
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(abort, 5_000);
     try {
-      const res = await fetch(url, { method: "HEAD", signal: abort.signal });
+      const res = await fetch(url, { method: "HEAD", signal: controller.signal });
       // 530: Cloudflare has the name but not yet the tunnel
       if (res.status !== 530) return;
     } catch {
       // not resolvable yet
     } finally {
       clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await delay(1_000, undefined, { signal });
   }
+  throw new Error("The tunnel did not become reachable. Try making the port public again.");
 }
-
-const accepts = (target: Target) =>
-  new Promise<boolean>((resolve) => {
-    const { connectTo, port } = upstreamOf(target.address, target.port);
-    const socket = connect(port, connectTo);
-    socket.setTimeout(1_500);
-    const done = (up: boolean) => {
-      socket.destroy();
-      resolve(up);
-    };
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
-    socket.once("timeout", () => done(false));
-  });
 
 /**
  * Private and public shares of workspace ports. Private: `tailscale serve` on the tailnet, or a
@@ -107,12 +98,15 @@ const accepts = (target: Target) =>
  * when their server stops, and when the plugin stops; the plugin undoes leftovers when it starts.
  */
 export class Shares {
-  private privates = new Map<number, PrivateShare>();
-  private publics = new Map<number, PublicShare>();
+  private privates = new Map<string, PrivateShare>();
+  private publics = new Map<string, PublicShare>();
   private state: { at: number; value: Promise<TailscaleState> } | undefined;
   private queue: Promise<unknown> = Promise.resolve();
-  private missingSince = new Map<number, number>();
+  private missingSince = new Map<string, number>();
   private watch: ReturnType<typeof setInterval> | undefined;
+  private checking = false;
+  private stopping = false;
+  private lifetime = new AbortController();
   readonly ready: Promise<void>;
 
   constructor(
@@ -185,12 +179,19 @@ export class Shares {
   }
 
   /** What the scan reports for a port. */
-  describe(port: number): { privateUrl: string | null; public: Port["public"] } {
-    const pub = this.publics.get(port);
+  describe(id: string): { privateUrl: string | null; privateError?: string; public: Port["public"] } {
+    const pub = this.publics.get(id);
     return {
-      privateUrl: this.privates.get(port)?.url ?? null,
+      privateUrl: this.privates.get(id)?.url ?? null,
+      privateError: this.privates.get(id)?.error,
       public: pub
-        ? { url: pub.url, provider: pub.provider, access: pub.access, password: pub.password }
+        ? {
+            url: pub.url,
+            provider: pub.provider,
+            access: pub.access,
+            password: pub.password,
+            ...(pub.error ? { error: pub.error } : {}),
+          }
         : null,
     };
   }
@@ -198,20 +199,27 @@ export class Shares {
   /** Over HTTPS at the machine's tailnet name; null when Tailscale has no HTTPS here. */
   sharePrivate(listener: Listener): Promise<string | null> {
     return this.serial(async () => {
-      const existing = this.privates.get(listener.port);
+      if (this.stopping) throw new Error("The Ports plugin is stopping");
+      const id = listenerId(listener);
+      const existing = this.privates.get(id);
+      if (existing?.error)
+        throw new Error("This link has stopped. Retry Stop forwarding to finish its cleanup.");
       if (existing) return existing.url;
       const state = await this.tailscale(0);
       if (!tailscaleOptions(state, userInfo().username).https.available || !state.status?.dnsName)
         return null;
       const { addresses, dnsName } = state.status;
       // the HTTPS link replaces a forward over HTTP, which would hold the port number
-      this.forwards.close(listener.port);
+      this.forwards.close(id);
       const sameNumber =
         !state.config.has(listener.port) && (await isFree(addresses, listener.port)) ? listener.port : null;
       let httpsPort = sameNumber ?? (await freePort(addresses));
       while (state.config.has(httpsPort)) httpsPort = await freePort(addresses);
-      const target = { address: listener.address, port: listener.port };
-      const proxy = await startProxy(target, null);
+      const target = listener;
+      const allowed = this.forwards.access.guard(target);
+      const proxy = await startProxy(target, null, () =>
+        this.stopping ? Promise.resolve(false) : allowed(),
+      );
       const record: ShareRecord = { kind: "serve", httpsPort, target: proxy.url };
       try {
         await this.records.add(record);
@@ -222,7 +230,7 @@ export class Shares {
         throw error;
       }
       const url = httpsUrl(dnsName, httpsPort);
-      this.privates.set(listener.port, { target, proxy, httpsPort, url, record });
+      this.privates.set(id, { target, proxy, httpsPort, url, record });
       this.state = undefined;
       this.startWatching();
       console.log(`shared port ${listener.port} privately at ${url}`);
@@ -236,17 +244,22 @@ export class Shares {
     access: Access,
   ): Promise<{ url: string; password: string | null }> {
     return this.serial(async () => {
-      const existing = this.publics.get(listener.port);
+      if (this.stopping) throw new Error("The Ports plugin is stopping");
+      const id = listenerId(listener);
+      const existing = this.publics.get(id);
       if (existing) throw new Error(`Port ${listener.port} is already public at ${existing.url}`);
-      const target = { address: listener.address, port: listener.port };
+      const target = listener;
       const password = access === "password" ? newPassword() : null;
-      const proxy = await startProxy(target, password);
+      const allowed = this.forwards.access.guard(target);
+      const proxy = await startProxy(target, password, () =>
+        this.stopping ? Promise.resolve(false) : allowed(),
+      );
       try {
         const share =
           provider === "funnel"
             ? await this.openFunnel(target, proxy, access, password)
             : await this.openTunnel(target, proxy, access, password);
-        this.publics.set(listener.port, share);
+        this.publics.set(id, share);
         this.startWatching();
         console.log(`shared port ${listener.port} publicly at ${share.url} (${provider}, ${access})`);
         return { url: share.url, password };
@@ -296,18 +309,33 @@ export class Shares {
     const option = cloudflareOption(process.platform, process.arch);
     if (!option.available) throw new Error(option.reason ?? "cloudflared isn't available");
     let record: ShareRecord | undefined;
+    let recorded: Promise<void> = Promise.resolve();
     let started: Awaited<ReturnType<typeof startQuickTunnel>>;
     try {
-      started = await startQuickTunnel(proxy.url, (pid) => {
-        record = { kind: "cloudflared", pid, target: proxy.url };
-        void this.records.add(record);
-      });
+      started = await startQuickTunnel(
+        proxy.url,
+        (pid) => {
+          record = { kind: "cloudflared", pid, target: proxy.url };
+          recorded = this.records.add(record);
+          void recorded.catch(() => {});
+        },
+        30_000,
+        this.lifetime.signal,
+      );
     } catch (error) {
+      await recorded.catch(() => {});
       if (record) await this.records.remove(record);
       throw error;
     }
     const { url, child } = started;
-    await answering(url);
+    const startup = new AbortController();
+    let exitError: Error | undefined;
+    const abort = () => {
+      child.kill();
+      startup.abort();
+    };
+    this.lifetime.signal.addEventListener("abort", abort, { once: true });
+    if (this.stopping) abort();
     const share: PublicShare = {
       target,
       proxy,
@@ -320,44 +348,87 @@ export class Shares {
       child,
     };
     child.once("exit", (code) => {
-      if (this.publics.get(target.port) !== share) return;
+      exitError = new Error(`cloudflared exited (${code ?? "signal"})`);
+      startup.abort();
+      const id = listenerId(target);
+      if (this.publics.get(id) !== share) return;
       console.error(`cloudflared for port ${target.port} exited (${code ?? "signal"}); the share ended`);
-      this.publics.delete(target.port);
+      this.publics.delete(id);
       proxy.close();
-      void this.records.remove(share.record);
+      void this.records
+        .remove(share.record)
+        .catch((error) => console.error("recording tunnel exit failed:", error));
     });
-    return share;
+    try {
+      if (child.exitCode !== null || child.signalCode !== null)
+        throw new Error("cloudflared exited before its link was ready");
+      await recorded;
+      await answering(url, startup.signal);
+      if (startup.signal.aborted) throw exitError ?? new Error("Opening the public link was cancelled");
+      return share;
+    } catch (error) {
+      child.kill();
+      proxy.close();
+      await this.records.remove(share.record);
+      throw exitError ?? error;
+    } finally {
+      this.lifetime.signal.removeEventListener("abort", abort);
+    }
   }
 
-  unshare(port: number, level: "private" | "public"): Promise<void> {
+  unshare(id: string, level: "private" | "public"): Promise<void> {
+    if (level === "private") {
+      this.forwards.close(id);
+      this.privates.get(id)?.proxy.block();
+    } else {
+      this.publics.get(id)?.proxy.block();
+      this.publics.get(id)?.child?.kill();
+    }
     return this.serial(async () => {
       if (level === "private") {
-        this.forwards.close(port);
-        const share = this.privates.get(port);
+        this.forwards.close(id);
+        const share = this.privates.get(id);
         if (!share) return;
-        this.privates.delete(port);
-        await this.unserveOwn("serve", share.httpsPort, share.proxy.url);
-        share.proxy.close();
-        await this.records.remove(share.record);
-        console.log(`stopped sharing port ${port} privately`);
+        share.proxy.block();
+        try {
+          await this.unserveOwn("serve", share.httpsPort, share.proxy.url);
+          share.proxy.close();
+          await this.records.remove(share.record);
+          this.privates.delete(id);
+        } catch (error) {
+          share.error = `Forwarding stopped; cleanup needs a retry: ${error instanceof Error ? error.message : String(error)}`;
+          throw error;
+        }
+        console.log(`stopped sharing port ${share.target.port} privately`);
         return;
       }
-      const share = this.publics.get(port);
+      const share = this.publics.get(id);
       if (!share) return;
-      this.publics.delete(port);
-      if (share.httpsPort !== null) await this.unserveOwn("funnel", share.httpsPort, share.proxy.url);
       share.child?.kill();
-      share.proxy.close();
-      await this.records.remove(share.record);
-      console.log(`stopped sharing port ${port} publicly`);
+      share.proxy.block();
+      try {
+        if (share.httpsPort !== null) await this.unserveOwn("funnel", share.httpsPort, share.proxy.url);
+        share.proxy.close();
+        await this.records.remove(share.record);
+        this.publics.delete(id);
+      } catch (error) {
+        share.error = `Public access stopped; cleanup needs a retry: ${error instanceof Error ? error.message : String(error)}`;
+        throw error;
+      }
+      console.log(`stopped sharing port ${share.target.port} publicly`);
     });
   }
 
   /** Turns a port's serve config off, unless someone has changed it since the plugin set it up. */
   private async unserveOwn(kind: "serve" | "funnel", httpsPort: number, target: string): Promise<void> {
     const state = await this.tailscale(0);
+    if (state.problem) throw new Error(state.problem);
     if (!state.config.has(httpsPort)) return;
     if (!servesOnly(state.config, httpsPort, target)) {
+      if (Object.values(state.config.get(httpsPort)!.handlers).includes(target))
+        throw new Error(
+          `Tailscale port ${httpsPort} was changed and still routes to this link. Remove that route before retrying cleanup.`,
+        );
       console.log(`left ${kind} on port ${httpsPort} alone: it serves something else now`);
       return;
     }
@@ -366,8 +437,17 @@ export class Shares {
   }
 
   async stopAll(): Promise<void> {
+    this.stopping = true;
+    this.lifetime.abort();
     if (this.watch) clearInterval(this.watch);
     this.watch = undefined;
+    this.forwards.stop();
+    for (const share of this.privates.values()) share.proxy.block();
+    for (const share of this.publics.values()) {
+      share.proxy.block();
+      share.child?.kill();
+    }
+    await this.queue;
     const ports = new Set([...this.privates.keys(), ...this.publics.keys()]);
     await Promise.all(
       [...ports].flatMap((port) => [
@@ -384,7 +464,16 @@ export class Shares {
 
   /** Every few seconds, while anything is shared or forwarded: ends what a stopped server left. */
   private startWatching(): void {
-    this.watch ??= setInterval(() => void this.check(), WATCH_MS);
+    if (this.stopping) return;
+    this.watch ??= setInterval(() => {
+      if (this.checking) return;
+      this.checking = true;
+      void this.check()
+        .catch((error) => console.error("checking shared ports failed:", error))
+        .finally(() => {
+          this.checking = false;
+        });
+    }, WATCH_MS);
   }
 
   watchForwards(): void {
@@ -392,7 +481,7 @@ export class Shares {
   }
 
   private async check(): Promise<void> {
-    const targets = new Map<number, Target>();
+    const targets = new Map<string, Target>();
     for (const [port, s] of this.privates) targets.set(port, s.target);
     for (const [port, s] of this.publics) targets.set(port, s.target);
     for (const [port, f] of this.forwards.entries()) targets.set(port, f.target);
@@ -403,15 +492,24 @@ export class Shares {
     }
     const now = Date.now();
     for (const [port, target] of targets) {
-      if (await accepts(target)) {
+      if (this.publics.get(port)?.error)
+        await this.unshare(port, "public").catch((error) =>
+          console.error("retrying public cleanup failed:", error),
+        );
+      if (this.privates.get(port)?.error)
+        await this.unshare(port, "private").catch((error) =>
+          console.error("retrying private cleanup failed:", error),
+        );
+      const status = await this.forwards.access.status(target).catch(() => "missing" as const);
+      if (status === "present") {
         this.missingSince.delete(port);
         continue;
       }
       const since = this.missingSince.get(port) ?? now;
       this.missingSince.set(port, since);
-      if (now - since < GONE_AFTER_MS) continue;
+      if (status !== "replaced" && now - since < GONE_AFTER_MS) continue;
       this.missingSince.delete(port);
-      console.log(`port ${port} stopped listening; ending its shares`);
+      console.log(`port ${target.port} stopped or changed owner; ending its shares`);
       await this.unshare(port, "public").catch((error) =>
         console.error(`ending public share ${port} failed:`, error),
       );

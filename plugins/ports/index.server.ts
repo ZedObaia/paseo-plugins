@@ -6,11 +6,12 @@ import {
   scanRpc,
   sharePublicRpc,
   unshareRpc,
+  type PortTarget,
 } from "./shared/contracts";
 import { isLoopback, urlHost } from "./server/address";
 import { installCloudflared } from "./server/cloudflared";
 import { Forwards, linkHost } from "./server/links";
-import { scan, toPort, type Scan } from "./server/scan";
+import { scan, toPort, workspaceListener, type Scan } from "./server/scan";
 import { Shares } from "./server/shares";
 
 // Every open panel and header polls; a scan this recent answers them all.
@@ -49,17 +50,18 @@ export default function contribute(server: PluginServerContext) {
   const unsubscribe = settings.subscribe(keep);
 
   /** A port some workspace holds, from a scan that starts now: the only ports the plugin exposes. */
-  const workspacePort = async (context: PluginHandlerContext, port: number) => {
+  const workspacePort = async (context: PluginHandlerContext, target: PortTarget) => {
+    // a scan already running may predate the action; a failed one doesn't block it
+    await running?.catch(() => {});
     const fresh = await refresh(context);
-    const listener = fresh.attributed.find((l) => l.port === port);
-    if (!listener) throw new Error(`Nothing in a workspace listens on port ${port}`);
+    const listener = workspaceListener(fresh.attributed, target);
     return { listener, host: fresh.host };
   };
   const changed = <T>(result: T) => ((last = undefined), result);
 
   server.handle(scanRpc, async (_, context) => (await current(context)).output);
-  server.handle(linkRpc, async ({ port }, context) => {
-    const { listener, host } = await workspacePort(context, port);
+  server.handle(linkRpc, async (target, context) => {
+    const { listener, host } = await workspacePort(context, target);
     const https = await shares.sharePrivate(listener);
     if (https) return changed({ url: https });
     // no HTTPS on this tailnet: the link host, through a forward when the server is on loopback
@@ -70,8 +72,8 @@ export default function contribute(server: PluginServerContext) {
     }
     return { url: toPort(listener, host, { forwardedAt: null, privateUrl: null, public: null }, null).url };
   });
-  server.handle(sharePublicRpc, async ({ port, provider, access }, context) => {
-    const { listener } = await workspacePort(context, port);
+  server.handle(sharePublicRpc, async ({ provider, access, ...target }, context) => {
+    const { listener } = await workspacePort(context, target);
     return changed(await shares.sharePublic(listener, provider, access));
   });
   server.handle(installCloudflaredRpc, async () => {
@@ -84,7 +86,14 @@ export default function contribute(server: PluginServerContext) {
     clearTimeout(timer);
     return changed({ done });
   });
-  server.handle(unshareRpc, async ({ port }) => changed((await shares.unshare(port, "public"), {})));
+  server.handle(unshareRpc, async ({ id, level }) => {
+    try {
+      await shares.unshare(id, level);
+      return {};
+    } finally {
+      last = undefined;
+    }
+  });
 
   return async () => {
     unsubscribe();

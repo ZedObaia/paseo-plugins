@@ -22,6 +22,8 @@ export interface ProcessInfo {
 
 /** A listening port and what ties it to a workspace, most telling first. */
 export interface Listener {
+  /** Full command or container name, used to distinguish servers with the same display name. */
+  identity?: string;
   port: number;
   address: string;
   name: string;
@@ -72,6 +74,7 @@ export function toListeners(
       ppid = parent.ppid;
     }
     listeners.push({
+      identity: proc.command,
       port: s.port,
       address: s.address,
       name: displayName(proc.command) ?? proc.name,

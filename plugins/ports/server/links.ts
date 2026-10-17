@@ -5,6 +5,7 @@ import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { canonicalAddress, isLoopback, isWildcard, urlHost } from "./address";
 import type { Listener } from "./processes";
+import { ListenerAccess, listenerId } from "./identity";
 
 /** The daemon's listen setting, resolved the way the daemon resolves it. */
 export function daemonListen(): string {
@@ -53,7 +54,7 @@ interface Forward {
   server: Server;
   /** Where it listens: the target's port when that was free. */
   port: number;
-  target: { address: string; port: number };
+  target: Listener;
   sockets: Set<Socket>;
 }
 
@@ -62,21 +63,42 @@ interface Forward {
  * WebSockets and hot reload all pass through. Shares stops it when its port stops listening.
  */
 export class Forwards {
-  private forwards = new Map<number, Forward>();
+  private forwards = new Map<string, Forward>();
+  private opening = new Map<string, Promise<number>>();
+  private generation = 0;
+  private stopped = false;
 
-  get(port: number): Forward | undefined {
-    return this.forwards.get(port);
+  constructor(readonly access = new ListenerAccess()) {}
+
+  get(id: string): Forward | undefined {
+    return this.forwards.get(id);
   }
 
-  async open(listener: Listener, host: string): Promise<number> {
-    const existing = this.forwards.get(listener.port);
-    if (existing) return existing.port;
+  open(listener: Listener, host: string): Promise<number> {
+    if (this.stopped) return Promise.reject(new Error("The Ports plugin is stopping"));
+    const id = listenerId(listener);
+    const existing = this.forwards.get(id);
+    if (existing) return Promise.resolve(existing.port);
+    const pending = this.opening.get(id);
+    if (pending) return pending;
+    const next = this.start(listener, host, id, this.generation).finally(() => this.opening.delete(id));
+    this.opening.set(id, next);
+    return next;
+  }
+
+  private async start(listener: Listener, host: string, id: string, generation: number): Promise<number> {
     const bind = isIP(host) ? host : (await lookup(host)).address;
     if (!Object.values(networkInterfaces()).some((list) => list?.some((i) => i.address === bind)))
       throw new Error(`${host} isn't an address of this machine, so ports can't be forwarded to it`);
-    const target = { address: listener.address, port: listener.port };
+    const target = listener;
     const sockets = new Set<Socket>();
-    const server = createServer((incoming) => {
+    const canConnect = this.access.guard(listener);
+    let closed = false;
+    const server = createServer(async (incoming) => {
+      sockets.add(incoming);
+      incoming.on("close", () => sockets.delete(incoming));
+      incoming.on("error", () => incoming.destroy());
+      if (!(await canConnect()) || closed || incoming.destroyed) return void incoming.destroy();
       const outgoing = connect(target.port, target.address);
       for (const socket of [incoming, outgoing]) {
         sockets.add(socket);
@@ -94,26 +116,41 @@ export class Forwards {
       if (error.code !== "EADDRINUSE") throw error;
       return listen(server, bind, 0);
     });
-    this.forwards.set(listener.port, { server, port, target, sockets });
+    if (generation !== this.generation) {
+      closed = true;
+      server.close();
+      for (const socket of sockets) socket.destroy();
+      throw new Error("The link settings changed while forwarding was being set up. Try again.");
+    }
+    server.on("close", () => {
+      closed = true;
+    });
+    this.forwards.set(id, { server, port, target, sockets });
     console.log(`forwarding ${urlHost(bind)}:${port} to ${urlHost(target.address)}:${target.port}`);
     return port;
   }
 
-  close(port: number): void {
-    const forward = this.forwards.get(port);
+  close(id: string): void {
+    const forward = this.forwards.get(id);
     if (!forward) return;
-    this.forwards.delete(port);
+    this.forwards.delete(id);
     forward.server.close();
     for (const socket of forward.sockets) socket.destroy();
-    console.log(`stopped forwarding port ${port}`);
+    console.log(`stopped forwarding port ${forward.target.port}`);
   }
 
-  entries(): IterableIterator<[number, Forward]> {
+  entries(): IterableIterator<[string, Forward]> {
     return this.forwards.entries();
   }
 
   closeAll(): void {
-    for (const port of [...this.forwards.keys()]) this.close(port);
+    this.generation++;
+    for (const id of [...this.forwards.keys()]) this.close(id);
+  }
+
+  stop(): void {
+    this.stopped = true;
+    this.closeAll();
   }
 }
 
