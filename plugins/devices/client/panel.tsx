@@ -127,8 +127,8 @@ function AgentTools({ theme, hostId, device }: { theme: PluginTheme; hostId: str
             The first time one does, {installs(device)} Nothing is downloaded.
           </Text>
           <Text style={{ color: c.foregroundMuted, lineHeight: 20 }}>
-            Agents already running don't get the tools; start a new one. Turning this off later stops new
-            agents from getting them; helpers already installed stay on the device.
+            Agents that were started without device tools need a restart to get them. Turning this off takes
+            the device away from every agent; helpers already installed stay on it.
           </Text>
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
             <Button theme={theme} label="Not now" disabled={busy} onPress={() => setAsking(false)} />

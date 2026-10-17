@@ -40,9 +40,11 @@ async function writeAgentConfig(assignment: Assignment): Promise<string> {
 let syncing = Promise.resolve();
 
 /**
- * Brings every workspace's file in line with the assignments and deletes the others. A missing
- * file fails every agent-device call, which is how agents lose a device that was released, taken
- * over or deleted. Runs after every change; one sync at a time.
+ * Brings every workspace's file in line with the assignments and deletes the others. A file is
+ * only written for a device the user allowed agent tools on: a missing file fails every
+ * agent-device call, so agents already running lose a device that was released, taken over,
+ * deleted or switched to one without consent, and agent-device never installs its helpers there.
+ * Runs after every change, consent included; one sync at a time.
  */
 export function syncAgentConfigs(): Promise<void> {
   syncing = syncing
@@ -50,7 +52,10 @@ export function syncAgentConfigs(): Promise<void> {
     .then(async () => {
       await mkdir(CONFIG_DIR, { recursive: true });
       const keep = new Set<string>();
-      for (const assignment of assignments()) keep.add(path.basename(await writeAgentConfig(assignment)));
+      for (const assignment of assignments()) {
+        if (agentToolsAllowed(assignment.deviceId))
+          keep.add(path.basename(await writeAgentConfig(assignment)));
+      }
       for (const name of await readdir(CONFIG_DIR))
         if (!keep.has(name)) await rm(path.join(CONFIG_DIR, name), { force: true });
     });

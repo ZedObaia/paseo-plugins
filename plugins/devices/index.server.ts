@@ -219,11 +219,9 @@ export default function contribute(server: PluginServerContext) {
       throw new Error("That device isn't on this host");
     }
     await allowAgentTools(deviceId, allow);
-    return {
-      message: allow
-        ? "Agents you start in its workspace from now on can drive it"
-        : "Agents you start from now on won't get tools for it",
-    };
+    // agents already running read their workspace's file on every call
+    await syncAgentConfigs();
+    return { message: allow ? "Agents in its workspace can drive it" : "Agents can't drive it any more" };
   });
 
   // An archived workspace gives its device back. One made for it ("New copy") is turned off, not
