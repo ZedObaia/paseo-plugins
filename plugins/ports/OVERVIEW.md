@@ -1,7 +1,7 @@
 Ports shows what each workspace is serving and lets you share it. A workspace running a web
 server gets a button in its header that lists them; the **Ports** panel (Command Center, "Show
 open ports") lists every port, in the Explorer on desktop and as a workspace tab on phones. Each
-web server has **Open**, **Copy link** and **Make public…**. Open uses Paseo's browser on the
+web server has **Open**, **Copy link** and **Share publicly**. Open uses Paseo's browser on the
 desktop app and your browser on the web and on phones.
 
 Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
@@ -68,9 +68,9 @@ port doesn't inherit it.
 
 ## Public links
 
-A port only becomes public when you press **Make public…**, read who will be able to open it, and
-press **Make public**. The port then shows a **Public** box with the address, the password, buttons
-to open and copy them, and **Stop**. The form offers:
+A port only becomes public when you press **Share publicly**, read who will be able to open it,
+and press **Share publicly** again. The port then shows a **Public** box with the address, the
+password, buttons to open and copy them, and **Stop**. The form offers:
 
 - **Require a password**, ticked by default: the browser asks once, and any user name works with
   the 12 random characters the plugin generates for that link. Untick it for webhooks and other
@@ -95,8 +95,8 @@ to open and copy them, and **Stop**. The form offers:
 
 The plugin uses the `cloudflared` in the daemon's PATH, or in Homebrew's or `/usr/local/bin`, when
 there is one. Otherwise the form says it will download it, and its button says so: **Download and
-make public**. Only that button downloads anything. The plugin then fetches
-cloudflared 2026.10.1, Cloudflare's own build, from its releases on GitHub
+share publicly**. Only that button downloads anything. The plugin then fetches cloudflared
+2026.10.1, Cloudflare's own build, from its releases on GitHub
 (`github.com/cloudflare/cloudflared`): about 40 MB on Linux and 20 MB on macOS, for x64 and arm64.
 It checks the file's size and SHA-256 against values built into the plugin, and the program's
 SHA-256 against the checksum Cloudflare publishes for that release, and installs nothing if
@@ -126,7 +126,7 @@ serve or Funnel setting.
 - HTTPS links and Funnel need the Tailscale CLI, logged in, with HTTPS certificates turned on
   for the tailnet (admin console, DNS). On Linux the daemon's user must be root or Tailscale's
   operator: `sudo tailscale set --operator=$USER` once. Funnel also needs the `funnel` node
-  attribute in the tailnet policy. The **Make public…** form says what's missing.
+  attribute in the tailnet policy. The **Share publicly** form says what's missing.
 - The plugin can download cloudflared for Linux and macOS on x64 and arm64. Elsewhere, install
   it from Cloudflare for Cloudflare links.
 - Without Tailscale HTTPS, links are `http://`. A server that only speaks HTTPS, or isn't a web

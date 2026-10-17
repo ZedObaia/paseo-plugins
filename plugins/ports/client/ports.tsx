@@ -132,7 +132,7 @@ function PublishForm({
           theme={theme}
           compact={compact}
           variant="primary"
-          label={progress ?? (download ? "Download and make public" : "Make public")}
+          label={progress ?? (download ? "Download and share publicly" : "Share publicly")}
           disabled={busy || !usable(option)}
           onPress={() => publish(provider, password ? "password" : "open", !!download)}
         />
@@ -359,7 +359,7 @@ function PortItem({
             compact={compact}
             variant="ghost"
             icon="Globe"
-            label="Make public…"
+            label="Share publicly"
             disabled={busy}
             onPress={() => setPublishing(true)}
           />
@@ -459,7 +459,7 @@ function OtherPortRow({
 }
 
 /**
- * A workspace's open ports, each with Open, Copy link and Make public. The Ports panel and the
+ * A workspace's open ports, each web server with Open, Copy link and Share publicly. The Ports panel and the
  * header button's dropdown both show this.
  */
 export function PortList({
