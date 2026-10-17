@@ -2,12 +2,16 @@ Devices puts iOS simulators and Android emulators inside Paseo, one per workspac
 view you can tap, swipe and type into from desktop or phone, and tools your agents use to drive
 the same device.
 
-Open **Device** from the Explorer's + menu, beside Files and Changes (or Command Center, "Open
-device"), and pick a device. It shows next to the agent, so you can watch both. On a phone or a
-narrow window it opens as a workspace tab, and the workspace's own + menu opens it as a tab
-anywhere. The device stays with that workspace: another workspace sees it as in use and has to take it over explicitly, or
-press **New copy** to get its own simulator (same model and iOS version) or another instance of
-the same emulator. Several devices run at once, so parallel workspaces each test on their own.
+Open **Device** with the phone button in a workspace's header, which shows the device's name once
+the workspace has one, from the Explorer's + menu beside Files and Changes, or with Command Center,
+"Open device", and pick a device. It opens next to the agent, so you can watch both. On a phone or a
+narrow window it opens as a workspace tab, and on a phone the header button is the way to it. The
+workspace's own + menu opens it as a tab anywhere.
+
+The device stays with that workspace: another workspace sees it as in use and has to take it over
+explicitly, or press **New copy** to get its own simulator (same model and iOS version) or another
+instance of the same emulator. Several devices run at once, so parallel workspaces each test on
+their own.
 
 Agents can drive a workspace's device with [agent-device](https://github.com/callstack/agent-device)
 tools: accessibility snapshots, taps, typing, app launches and screenshots. Agent tools are off

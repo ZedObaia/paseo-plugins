@@ -181,6 +181,7 @@ function Toolbar({
   const input = useRpc(inputRpc);
   const { busy, perform } = useAction(hostId);
   const [typing, setTyping] = useState(false);
+  const [more, setMore] = useState(false);
   const [text, setText] = useState("");
   const c = theme.colors;
   const on = device.state === "booted";
@@ -213,44 +214,56 @@ function Toolbar({
   }
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-      {/* narrow enough that an iPhone's buttons stay on one line in the Explorer */}
-      <View style={{ flex: 1, minWidth: 96 }}>
-        <Text style={{ color: c.foreground, fontWeight: "600" }} numberOfLines={1}>
-          {device.name}
-        </Text>
-        <StatusLine theme={theme} device={device} />
+    <View style={{ gap: 8 }}>
+      {/* the device's own buttons, then More for the rest: one line in a narrow Explorer */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+        <View style={{ flex: 1, minWidth: 96 }}>
+          <Text style={{ color: c.foreground, fontWeight: "600" }} numberOfLines={1}>
+            {device.name}
+          </Text>
+          <StatusLine theme={theme} device={device} />
+        </View>
+        {on ? (
+          <>
+            <IconButton theme={theme} icon="House" label="Home" onPress={() => key("home")} />
+            {device.platform === "android" ? (
+              <IconButton theme={theme} icon="ArrowLeft" label="Back" onPress={() => key("back")} />
+            ) : null}
+            {device.platform === "android" ? (
+              <IconButton theme={theme} icon="Layers" label="Recent apps" onPress={() => key("appSwitch")} />
+            ) : null}
+            <IconButton theme={theme} icon="RotateCw" label="Rotate" onPress={rotate} />
+            <IconButton theme={theme} icon="Keyboard" label="Type text" onPress={() => setTyping(true)} />
+          </>
+        ) : null}
+        <IconButton
+          theme={theme}
+          icon={more ? "ChevronUp" : "Ellipsis"}
+          label={more ? "Fewer actions" : "More actions"}
+          onPress={() => setMore(!more)}
+        />
       </View>
-      {on ? (
-        <>
-          <IconButton theme={theme} icon="House" label="Home" onPress={() => key("home")} />
-          {device.platform === "android" ? (
-            <IconButton theme={theme} icon="ArrowLeft" label="Back" onPress={() => key("back")} />
-          ) : null}
-          {device.platform === "android" ? (
-            <IconButton theme={theme} icon="Layers" label="Recent apps" onPress={() => key("appSwitch")} />
-          ) : null}
-          <IconButton theme={theme} icon="RotateCw" label="Rotate" onPress={rotate} />
-          <IconButton theme={theme} icon="Keyboard" label="Type text" onPress={() => setTyping(true)} />
+      {more ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          <Button theme={theme} icon="ArrowLeftRight" label="Change device" onPress={onChange} />
           {canTurnOff(device) ? (
-            <IconButton
+            <Button
               theme={theme}
               icon="PowerOff"
-              label="Turn off"
+              label="Turn off device"
               disabled={busy}
               onPress={() => void perform(() => power({ deviceId: device.id, action: "shutdown" }))}
             />
           ) : null}
-        </>
+          <Button
+            theme={theme}
+            icon="Unlink"
+            label="Release device"
+            disabled={busy}
+            onPress={() => void perform(() => assign({ ...workspace, deviceId: null, takeOver: false }))}
+          />
+        </View>
       ) : null}
-      <IconButton theme={theme} icon="ArrowLeftRight" label="Change device" onPress={onChange} />
-      <IconButton
-        theme={theme}
-        icon="Unlink"
-        label="Release device"
-        disabled={busy}
-        onPress={() => void perform(() => assign({ ...workspace, deviceId: null, takeOver: false }))}
-      />
       <Modal title="Type on the device" open={typing} onOpenChange={setTyping}>
         <Modal.Content>
           <Text style={{ color: c.foregroundMuted }}>Goes to whatever field has focus on the device.</Text>

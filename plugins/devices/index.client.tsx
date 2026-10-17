@@ -2,6 +2,7 @@ import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plug
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
 import { isOn, useDevices } from "./client/data";
+import { headerButtons } from "./client/header";
 import { devicePanel } from "./client/location";
 import { DevicePanel } from "./client/panel";
 import { DevicesScreen } from "./client/screen";
@@ -50,5 +51,5 @@ export default function contribute(client: PluginClientContext) {
   });
   client.addScreen({ id: "devices", title: "Devices", Component: DevicesScreen });
   client.addSidebarHeaderItem({ id: "devices", title: "Devices", Component: DevicesItem });
-  return () => {};
+  return headerButtons(client);
 }
