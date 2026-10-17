@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import type { Access, Port, Provider, Sharing, SharingOption } from "../shared/contracts";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
-import { Button, Checkbox, IconButton } from "./ui";
+import { Button, Checkbox, faint, IconButton, Options, Pill, sizes, TextAction } from "./ui";
 
 interface Actions {
   /** Opens the port's own link, or `url` (its public one). */
@@ -22,13 +22,24 @@ interface Actions {
 const usable = (option: SharingOption) => option.available || !!option.download;
 const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
 
+/** Who a port's own link reaches. */
+function scopeOf(port: Port, sharing: Sharing): "Local" | "Tailnet" | "Network" {
+  const tailnet =
+    port.private?.https ||
+    (port.needsLink && sharing.https.available) ||
+    /(?:\.ts\.net|\/\/100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\/\/\[fd7a:)/.test(port.url);
+  if (tailnet) return "Tailnet";
+  return /^https?:\/\/(?:localhost|127\.[\d.]+|\[::1\])(?::|\/|$)/.test(port.url) ? "Local" : "Network";
+}
+
 /**
  * Making a port public: who will be able to open it, whether it asks for a password, and its
- * address. The address is a random Cloudflare one, which has no limit on how many there are, or
- * where the tailnet allows Funnel, this machine's stable Tailscale name instead.
+ * address: a random Cloudflare one, which has no limit on how many there are, or where the
+ * tailnet allows Funnel, this machine's stable Tailscale name.
  */
 function PublishForm({
   theme,
+  compact,
   port,
   sharing,
   busy,
@@ -37,6 +48,7 @@ function PublishForm({
   publish,
 }: {
   theme: PluginTheme;
+  compact: boolean;
   port: Port;
   sharing: Sharing;
   busy: boolean;
@@ -51,71 +63,76 @@ function PublishForm({
   );
   const [password, setPassword] = useState(true);
   const option = sharing[provider];
-  const other: Provider = provider === "cloudflare" ? "funnel" : "cloudflare";
   const download = !option.available ? option.download : null;
-  const muted = { color: c.foregroundMuted, fontSize: 12, lineHeight: 17 };
+  const note = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
+  const random = "New each time, through Cloudflare. Can't stream Server-Sent Events.";
+  const stable = `${sharing.tailnetName ?? "This machine's tailnet name"}, through Tailscale. Listed publicly, so keep the password.`;
   return (
     <View
       style={{
-        gap: 10,
-        padding: 10,
+        gap: 12,
+        padding: 12,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: c.border,
-        backgroundColor: c.surface2,
+        backgroundColor: c.surface0,
       }}
     >
-      <Text style={{ color: c.foreground, fontSize: 13, lineHeight: 19 }}>
-        Anyone on the internet who has the link{password ? " and the password" : ""} will be able to open{" "}
-        {portName(port)}, until you stop it or the server stops.
+      <Text style={{ color: c.foreground, fontSize: sizes(compact).text, lineHeight: 19 }}>
+        Anyone with the link{password ? " and the password" : ""} will be able to open {portName(port)} until
+        you stop it.
       </Text>
       <Checkbox
         theme={theme}
+        compact={compact}
         checked={password}
         onChange={setPassword}
         disabled={busy}
-        label="Ask for a password"
-        detail="Untick it for webhooks and other services that can't log in."
+        label="Require a password"
+        detail="Untick for webhooks and other services that can't log in."
       />
-      {usable(option) ? (
-        <Text style={muted}>
-          <Text style={{ color: c.foreground }}>Address: </Text>
-          {provider === "cloudflare"
-            ? "a random trycloudflare.com address, new each time. It can't stream Server-Sent Events."
-            : `${sharing.tailnetName ?? "this machine's tailnet name"}, the same each time. Names under ts.net are listed publicly, so scanners find them.`}
-          {usable(sharing[other]) ? (
-            <Text
-              accessibilityRole="link"
-              accessibilityState={{ disabled: busy }}
-              style={{ color: c.accent }}
-              onPress={busy ? undefined : () => setProvider(other)}
-            >
-              {provider === "cloudflare"
-                ? " Use a stable Tailscale address instead"
-                : " Use a random Cloudflare address instead"}
-            </Text>
-          ) : null}
+      {usable(sharing.cloudflare) && usable(sharing.funnel) ? (
+        <Options<Provider>
+          theme={theme}
+          compact={compact}
+          value={provider}
+          onChange={setProvider}
+          disabled={busy}
+          options={[
+            { value: "cloudflare", label: "Random address", detail: random },
+            { value: "funnel", label: "Stable address", detail: stable },
+          ]}
+        />
+      ) : usable(option) ? (
+        <Text style={note}>
+          {provider === "cloudflare" ? `Random address: ${random}` : `Stable address: ${stable}`}
         </Text>
       ) : (
-        <Text style={{ ...muted, color: c.statusDanger }}>
+        <Text style={{ ...note, color: c.statusDanger }}>
           There's no way to make it public on this host. Cloudflare: {sharing.cloudflare.reason} Tailscale
           Funnel: {sharing.funnel.reason}
         </Text>
       )}
       {download ? (
-        <Text style={muted}>
-          Cloudflare links need cloudflared, Cloudflare's tunnel program. The plugin downloads version{" "}
-          {download.version} ({megabytes(download.sizeBytes)}) from Cloudflare's releases on GitHub, checks it
-          against Cloudflare's checksums and keeps it in Paseo's folder.
+        <Text style={note}>
+          Downloads Cloudflare's cloudflared {download.version} ({megabytes(download.sizeBytes)}) from its
+          GitHub releases first.
         </Text>
       ) : null}
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-        <Button theme={theme} label="Cancel" disabled={busy} onPress={cancel} />
+      <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
         <Button
           theme={theme}
-          icon="Globe"
-          label={progress ?? (download ? "Download cloudflared and make public" : "Make public")}
-          primary
+          compact={compact}
+          variant="ghost"
+          label="Cancel"
+          disabled={busy}
+          onPress={cancel}
+        />
+        <Button
+          theme={theme}
+          compact={compact}
+          variant="primary"
+          label={progress ?? (download ? "Download and make public" : "Make public")}
           disabled={busy || !usable(option)}
           onPress={() => publish(provider, password ? "password" : "open", !!download)}
         />
@@ -127,12 +144,14 @@ function PublishForm({
 /** A public port's address and password, with what can be done with them. */
 function PublicLink({
   theme,
+  compact,
   port,
   busy,
   inApp,
   actions,
 }: {
   theme: PluginTheme;
+  compact: boolean;
   port: Port;
   busy: boolean;
   inApp: boolean;
@@ -143,39 +162,49 @@ function PublicLink({
   return (
     <View
       style={{
-        gap: 6,
-        padding: 10,
+        gap: 4,
+        paddingTop: 10,
+        paddingHorizontal: 10,
+        paddingBottom: pub.error ? 10 : 4,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: c.statusWarning,
-        backgroundColor: c.surface2,
+        borderColor: faint(c.statusWarning),
+        backgroundColor: c.surface0,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <Icon name="Globe" size={14} color={c.statusWarning} />
-        <Text style={{ color: c.statusWarning, fontSize: 13, fontWeight: "600" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Icon name="Globe" size={sizes(compact).icon} color={c.statusWarning} />
+        <Text style={{ color: c.statusWarning, fontSize: 12, fontWeight: "600" }}>
           {pub.error ? "Public access stopped" : "Public"}
         </Text>
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>
-          {pub.provider === "funnel" ? "through Tailscale Funnel" : "through a Cloudflare tunnel"}
+        <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12 }}>
+          {pub.provider === "funnel" ? "· stable address" : "· random address"}
         </Text>
+        <TextAction
+          theme={theme}
+          danger
+          label={pub.error ? "Retry cleanup" : "Stop"}
+          accessibilityLabel={pub.error ? "Retry cleanup" : `Stop the public link to port ${port.port}`}
+          disabled={busy}
+          onPress={() => actions.stop(port)}
+        />
       </View>
-      {pub.error ? <Text style={{ color: c.statusDanger, fontSize: 13 }}>{pub.error}</Text> : null}
-      <Text style={{ color: c.foreground, fontSize: 13 }} selectable>
+      {pub.error ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{pub.error}</Text> : null}
+      <Text style={{ color: c.foreground, fontSize: sizes(compact).text }} numberOfLines={2} selectable>
         {hostOf(pub.url)}
       </Text>
       {!pub.error ? (
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }} selectable>
-          {pub.password
-            ? `Password ${pub.password}, with any user name`
-            : "No password: anyone with the link can open it"}
+          {pub.password ? `Password ${pub.password} · any user name` : "No password"}
         </Text>
       ) : null}
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginLeft: -8 }}>
         {!pub.error ? (
           <>
             <Button
               theme={theme}
+              compact={compact}
+              variant="ghost"
               icon="ExternalLink"
               label="Open"
               disabled={busy}
@@ -183,6 +212,8 @@ function PublicLink({
             />
             <Button
               theme={theme}
+              compact={compact}
+              variant="ghost"
               icon="Copy"
               label="Copy link"
               disabled={busy}
@@ -191,6 +222,8 @@ function PublicLink({
             {pub.password ? (
               <Button
                 theme={theme}
+                compact={compact}
+                variant="ghost"
                 icon="KeyRound"
                 label="Copy password"
                 disabled={busy}
@@ -199,14 +232,6 @@ function PublicLink({
             ) : null}
           </>
         ) : null}
-        <Button
-          theme={theme}
-          icon="Square"
-          label={pub.error ? "Retry cleanup" : "Stop public link"}
-          danger
-          disabled={busy}
-          onPress={() => actions.stop(port)}
-        />
       </View>
     </View>
   );
@@ -214,6 +239,7 @@ function PublicLink({
 
 function PortItem({
   theme,
+  compact,
   port,
   sharing,
   first,
@@ -225,6 +251,7 @@ function PortItem({
   actions,
 }: {
   theme: PluginTheme;
+  compact: boolean;
   port: Port;
   sharing: Sharing;
   first: boolean;
@@ -237,58 +264,80 @@ function PortItem({
   actions: Actions;
 }) {
   const c = theme.colors;
-  const local = /^https?:\/\/(?:localhost|127\.[\d.]+|\[::1\])(?::|\/|$)/.test(port.url);
-  const tailnet =
-    port.private?.https ||
-    (port.needsLink && sharing.https.available) ||
-    /(?:\.ts\.net|\/\/100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\/\/\[fd7a:)/.test(port.url);
-  const scope = tailnet ? "Tailnet" : local ? "Local" : "Network";
+  const s = sizes(compact);
+  const scope = scopeOf(port, sharing);
   const forwards = port.private && !port.private.https;
   const willForward = port.needsLink && !sharing.https.available;
+  // the lines under the first one line up with its text, after the icon
+  const indent = s.icon + 8;
+  const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
   return (
-    <View style={{ gap: 8, padding: 12, borderTopWidth: first ? 0 : 1, borderTopColor: c.border }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Icon name={port.source === "docker" ? "Container" : "Globe"} size={16} color={c.foregroundMuted} />
-        <View style={{ flex: 1, gap: 1 }}>
-          <Text style={{ color: c.foreground, fontSize: 14 }} numberOfLines={1}>
-            <Text style={{ fontWeight: "600" }}>{port.port}</Text>
-            <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
+    <View style={{ gap: 6, padding: 12, borderTopWidth: first ? 0 : 1, borderTopColor: c.border }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Icon
+          name={port.source === "docker" ? "Container" : "Globe"}
+          size={s.icon}
+          color={c.foregroundMuted}
+        />
+        <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
+          <Text style={{ fontWeight: "600" }}>{port.port}</Text>
+          <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
+        </Text>
+        {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
+        {port.public ? <Pill theme={theme} label="Public" warning /> : null}
+        <Pill theme={theme} label={scope} warning={scope === "Network"} />
+      </View>
+      <View style={{ paddingLeft: indent, gap: 2 }}>
+        {port.detail ? (
+          <Text style={small} numberOfLines={1}>
+            {port.detail}
           </Text>
-          {port.detail ? (
-            <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
-              {port.detail}
-            </Text>
-          ) : null}
-          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{scope}</Text>
-          {port.private ? (
-            <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1} selectable>
+        ) : null}
+        {port.private ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
               {hostOf(port.url)}
             </Text>
-          ) : null}
-        </View>
-        {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
+            <TextAction
+              theme={theme}
+              label={port.private.error ? "Retry cleanup" : "Stop"}
+              accessibilityLabel={
+                port.private.error
+                  ? "Retry cleanup"
+                  : port.private.https
+                    ? `Stop the tailnet link to port ${port.port}`
+                    : `Stop forwarding port ${port.port}`
+              }
+              disabled={busy}
+              onPress={() => actions.stop(port, "private")}
+            />
+          </View>
+        ) : null}
+        {willForward || forwards ? (
+          <Text style={small}>
+            {willForward ? "Opening it forwards it to " : "Forwarded to "}
+            {hostOf(port.url)}, which anyone who can reach that address can use.
+          </Text>
+        ) : null}
+        {port.private?.error ? (
+          <Text style={{ ...small, color: c.statusDanger }}>{port.private.error}</Text>
+        ) : null}
       </View>
-      {willForward || forwards ? (
-        <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 18 }}>
-          {willForward ? "Opening or copying this link forwards the server to " : "Forwarding to "}
-          {hostOf(port.url)}. Anyone who can reach that address can use it without a password.
-        </Text>
-      ) : null}
-      {port.private?.error ? (
-        <Text style={{ color: c.statusDanger, fontSize: 13 }}>{port.private.error}</Text>
-      ) : null}
-      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <View
+        style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, paddingLeft: indent }}
+      >
         <Button
           theme={theme}
+          compact={compact}
           icon={inApp ? "AppWindow" : "ExternalLink"}
           label="Open"
-          primary
           disabled={busy}
           onPress={() => actions.open(port, inApp)}
         />
         {inApp ? (
           <IconButton
             theme={theme}
+            compact={compact}
             icon="ExternalLink"
             label={`Open port ${port.port} in your browser`}
             disabled={busy}
@@ -297,6 +346,8 @@ function PortItem({
         ) : null}
         <Button
           theme={theme}
+          compact={compact}
+          variant="ghost"
           icon="Copy"
           label="Copy link"
           disabled={busy}
@@ -305,41 +356,40 @@ function PortItem({
         {!port.public && !publishing ? (
           <Button
             theme={theme}
+            compact={compact}
+            variant="ghost"
             icon="Globe"
             label="Make public…"
             disabled={busy}
             onPress={() => setPublishing(true)}
           />
         ) : null}
-        {port.private ? (
-          <Button
-            theme={theme}
-            icon="Square"
-            label={
-              port.private.error
-                ? "Retry cleanup"
-                : port.private.https
-                  ? "Stop tailnet link"
-                  : "Stop forwarding"
-            }
-            disabled={busy}
-            onPress={() => actions.stop(port, "private")}
-          />
-        ) : null}
       </View>
       {publishing && !port.public ? (
-        <PublishForm
-          theme={theme}
-          port={port}
-          sharing={sharing}
-          busy={busy}
-          progress={progress}
-          cancel={() => setPublishing(false)}
-          publish={(provider, access, download) => actions.publish(port, provider, access, download)}
-        />
+        <View style={{ paddingLeft: compact ? 0 : indent }}>
+          <PublishForm
+            theme={theme}
+            compact={compact}
+            port={port}
+            sharing={sharing}
+            busy={busy}
+            progress={progress}
+            cancel={() => setPublishing(false)}
+            publish={(provider, access, download) => actions.publish(port, provider, access, download)}
+          />
+        </View>
       ) : null}
       {port.public ? (
-        <PublicLink theme={theme} port={port} busy={busy} inApp={inApp} actions={actions} />
+        <View style={{ paddingLeft: compact ? 0 : indent }}>
+          <PublicLink
+            theme={theme}
+            compact={compact}
+            port={port}
+            busy={busy}
+            inApp={inApp}
+            actions={actions}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -351,11 +401,14 @@ function PortItem({
  */
 export function PortList({
   theme,
+  compact,
   hostId,
   workspaceId,
   openInApp,
 }: {
   theme: PluginTheme;
+  /** Phones and narrow windows: touch-sized controls. */
+  compact: boolean;
   hostId: string;
   workspaceId: string;
   /** Paseo's own browser, where the app has one. */
@@ -446,7 +499,7 @@ export function PortList({
       ) : (
         <View
           style={{
-            borderRadius: 10,
+            borderRadius: 8,
             borderWidth: 1,
             borderColor: c.border,
             backgroundColor: c.surface1,
@@ -457,6 +510,7 @@ export function PortList({
             <PortItem
               key={port.id}
               theme={theme}
+              compact={compact}
               port={port}
               sharing={scan.data!.sharing}
               first={i === 0}

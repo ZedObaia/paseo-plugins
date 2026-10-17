@@ -6,8 +6,8 @@ on the desktop app and your browser on the web and on phones.
 
 Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
 devices) or **Network** (anyone who can reach the machine), and a network forward says so before
-you open or copy it. **Stop tailnet link** or **Stop forwarding** removes the link Ports made,
-without stopping your server.
+you open or copy it. Once Ports has made a link, **Stop** beside it removes the link without
+stopping your server.
 
 ## How ports find their workspace
 
@@ -56,20 +56,20 @@ port doesn't inherit it.
 ## Public links
 
 A port only becomes public when you press **Make public…**, read who will be able to open it, and
-press **Make public**. The port then shows a **Public** box with the address and password and
-buttons to open, copy and stop it.
+press **Make public**. The port then shows a **Public** box with the address, the password, buttons
+to open and copy them, and **Stop**. The form offers:
 
-- **Password.** Public links ask for one by default: the browser asks once, and any user name
-  works with the 12 random characters the plugin generates for that link. Untick it for webhooks
-  and other services that can't log in.
-- **A random Cloudflare address**, the default. The plugin runs
+- **Require a password**, ticked by default: the browser asks once, and any user name works with
+  the 12 random characters the plugin generates for that link. Untick it for webhooks and other
+  services that can't log in.
+- **Random address**, the default. The plugin runs
   `cloudflared tunnel --url http://127.0.0.1:<proxy>`, a Cloudflare quick tunnel, and gives you the
   random `https://….trycloudflare.com` address it gets, which is new every time. It needs no
   Cloudflare account, and traffic passes through Cloudflare's network. Cloudflare offers quick
   tunnels for testing and development: they have no uptime guarantee, take up to 200 requests at
   a time, and don't support Server-Sent Events, so pages that stream updates that way need the
   Tailscale address. Nothing in Tailscale changes.
-- **A stable Tailscale address**, offered when the tailnet allows Funnel. The plugin runs
+- **Stable address**, offered when the tailnet allows Funnel. The plugin runs
   `tailscale funnel --bg --yes --https=<port> http://127.0.0.1:<proxy>`, which adds an entry to the
   machine's serve settings and turns Funnel on for it, publishing it at
   `https://<machine>.<tailnet>.ts.net:<port>`. Funnel only allows ports 443, 8443 and 10000, and
@@ -81,8 +81,8 @@ buttons to open, copy and stop it.
 ### cloudflared
 
 The plugin uses the `cloudflared` in the daemon's PATH, or in Homebrew's or `/usr/local/bin`, when
-there is one. Otherwise the form offers to download it, and the button says so: **Download
-cloudflared and make public**. Only that button downloads anything. The plugin then fetches
+there is one. Otherwise the form says it will download it, and its button says so: **Download and
+make public**. Only that button downloads anything. The plugin then fetches
 cloudflared 2026.10.1, Cloudflare's own build, from its releases on GitHub
 (`github.com/cloudflare/cloudflared`): about 40 MB on Linux and 20 MB on macOS, for x64 and arm64.
 It checks the file's size and SHA-256 against values built into the plugin, and the program's
