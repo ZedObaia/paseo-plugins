@@ -277,7 +277,11 @@ const landscape = new Set<string>();
 export async function iosFrame(udid: string): Promise<Frame | null> {
   const s = await session(udid);
   if (!s.frame) await waitFor(async () => Boolean(s.frame), 5_000, "the first frame").catch(() => {});
-  return s.frame ? { ...s.frame, rotate: landscape.has(udid) ? 90 : 0 } : null;
+  if (!s.frame) return null;
+  const turned = landscape.has(udid);
+  // A turn is a new picture even when the screen didn't change, as a portrait-only app's doesn't:
+  // with the same seq, a polling panel would keep the old picture and map taps onto the new one.
+  return { ...s.frame, seq: s.frame.seq * 2 + (turned ? 1 : 0), rotate: turned ? 90 : 0 };
 }
 
 /** A point on the picture as shown to the same point on the portrait screen. */

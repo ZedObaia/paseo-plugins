@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc, useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Text, View } from "react-native";
 import { inputRpc, type Assignment, type Device } from "../shared/contracts";
 import { splitDevices } from "../shared/select";
 import { canDuplicate, canTurnOff, canTurnOn, onFirst, useAction, useDeviceRpcs, useDevices } from "./data";
@@ -58,7 +58,14 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
           <AgentTools theme={theme} hostId={host.id} device={device} />
           {device.state === "booted" ? (
             // keyed: a new device starts with an empty picture, not taps on the old one's
-            <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={setLandscape} />
+            <>
+              <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={setLandscape} />
+              {layout.compact && Platform.OS !== "web" ? (
+                <Text style={{ color: c.foregroundMuted, fontSize: 12, textAlign: "center" }}>
+                  Swipe sideways with two fingers: one finger moves Paseo's panels.
+                </Text>
+              ) : null}
+            </>
           ) : (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 16 }}>
               {canTurnOn(device) ? <BootButton theme={theme} hostId={host.id} device={device} /> : null}
@@ -215,13 +222,13 @@ function Toolbar({
 
   return (
     <View style={{ gap: 8 }}>
-      {/* the device's own buttons, then More for the rest: one line in a narrow Explorer */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-        <View style={{ flex: 1, minWidth: 96 }}>
+      {/* the device's own buttons, then More for the rest, on one line: the name gives way */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ color: c.foreground, fontWeight: "600" }} numberOfLines={1}>
             {device.name}
           </Text>
-          <StatusLine theme={theme} device={device} />
+          <StatusLine theme={theme} device={device} lines={1} />
         </View>
         {on ? (
           <>

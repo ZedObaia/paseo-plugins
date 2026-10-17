@@ -83,11 +83,13 @@ export function StatusLine({
   device,
   note,
   warn,
+  lines = 2,
 }: {
   theme: PluginTheme;
   device: Device;
   note?: string;
   warn?: boolean;
+  lines?: number;
 }) {
   const c = theme.colors;
   const color = device.error
@@ -98,7 +100,7 @@ export function StatusLine({
         ? c.statusSuccess
         : c.foregroundMuted;
   return (
-    <Text style={{ color, fontSize: 12 }} numberOfLines={2}>
+    <Text style={{ color, fontSize: 12 }} numberOfLines={lines}>
       {[device.detail, stateLabel(device), note].filter(Boolean).join(" · ")}
     </Text>
   );

@@ -6,7 +6,8 @@ Open **Device** with the phone button in a workspace's header, which shows the d
 the workspace has one, from the Explorer's + menu beside Files and Changes, or with Command Center,
 "Open device", and pick a device. It opens next to the agent, so you can watch both. On a phone or a
 narrow window it opens as a workspace tab, and on a phone the header button is the way to it. The
-workspace's own + menu opens it as a tab anywhere.
+workspace's own + menu opens it as a tab anywhere. In Paseo's phone app a one-finger swipe sideways
+moves Paseo's own panels, so swipe sideways on the device with two fingers.
 
 The device stays with that workspace: another workspace sees it as in use and has to take it over
 explicitly, or press **New copy** to get its own simulator (same model and iOS version) or another

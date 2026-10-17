@@ -12,6 +12,7 @@ import {
 import { LONG_PRESS_MS, frameRpc, inputRpc } from "../shared/contracts";
 
 type Shown = { uri: string; width: number; height: number };
+type Point = { x: number; y: number };
 
 /**
  * The device screen, fitted to the panel. Frames are polled (the next request goes out when the
@@ -37,6 +38,8 @@ export function LiveScreen({
   const [next, setNext] = useState<Shown | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const touch = useRef<{ x: number; y: number; at: number } | null>(null);
+  // two fingers down: where their midpoint started and where it is now
+  const pair = useRef<{ from: Point; to: Point } | null>(null);
 
   // request roughly the pixels we'll draw (2x for sharp text), capped for slow links
   const maxWidth = Math.min(720, Math.max(240, Math.round(box.width * 2)));
@@ -86,10 +89,21 @@ export function LiveScreen({
     ? { width: Math.floor(picture.width * scale), height: Math.floor(picture.height * scale) }
     : { width: 0, height: 0 };
 
-  const point = (e: GestureResponderEvent) => ({
-    x: Math.min(1, Math.max(0, e.nativeEvent.locationX / (size.width || 1))),
-    y: Math.min(1, Math.max(0, e.nativeEvent.locationY / (size.height || 1))),
+  const at = (x: number, y: number): Point => ({
+    x: Math.min(1, Math.max(0, x / (size.width || 1))),
+    y: Math.min(1, Math.max(0, y / (size.height || 1))),
   });
+  const point = (e: GestureResponderEvent) => at(e.nativeEvent.locationX, e.nativeEvent.locationY);
+  const distance = (a: Point, b: Point) => Math.hypot((b.x - a.x) * size.width, (b.y - a.y) * size.height);
+
+  // Paseo's phone app moves its panels with a one-finger swipe sideways, before the picture sees
+  // it, but leaves two fingers alone: a two-finger drag is sent as a one-finger swipe.
+  function move(e: GestureResponderEvent) {
+    const [a, b] = e.nativeEvent.touches;
+    if (!a || !b) return;
+    const middle = at((a.locationX + b.locationX) / 2, (a.locationY + b.locationY) / 2);
+    pair.current = { from: pair.current?.from ?? middle, to: middle };
+  }
   const send = (body: Parameters<typeof input>[0]["input"]) =>
     void input({ deviceId, input: body }).catch((error: unknown) =>
       setProblem(error instanceof Error ? error.message : String(error)),
@@ -97,11 +111,23 @@ export function LiveScreen({
 
   function release(e: GestureResponderEvent) {
     const start = touch.current;
+    const two = pair.current;
     touch.current = null;
+    pair.current = null;
     if (!start) return;
-    const end = point(e);
     const heldMs = Date.now() - start.at;
-    const moved = Math.hypot((end.x - start.x) * size.width, (end.y - start.y) * size.height);
+    if (two) {
+      if (distance(two.from, two.to) >= 8)
+        send({
+          kind: "swipe",
+          from: two.from,
+          to: two.to,
+          durationMs: Math.min(5_000, Math.max(80, heldMs)),
+        });
+      return;
+    }
+    const end = point(e);
+    const moved = distance(start, end);
     if (moved < 8)
       send({
         kind: "tap",
@@ -138,9 +164,16 @@ export function LiveScreen({
           onMoveShouldSetResponder={() => true}
           // keep a drag even when a scroll view or pager around the panel wants it
           onResponderTerminationRequest={() => false}
-          onResponderGrant={(e) => (touch.current = { ...point(e), at: Date.now() })}
+          onResponderGrant={(e) => {
+            touch.current = { ...point(e), at: Date.now() };
+            pair.current = null;
+          }}
+          onResponderMove={move}
           onResponderRelease={release}
-          onResponderTerminate={() => (touch.current = null)}
+          onResponderTerminate={() => {
+            touch.current = null;
+            pair.current = null;
+          }}
           accessibilityLabel="Device screen. Tap, hold or drag to control it."
         >
           {shown ? (
