@@ -305,3 +305,22 @@ test("a changed Tailscale entry cannot release a proxy port it still references"
   await shares.unshare(listenerId(target), "public");
   assert.equal(shares.describe(listenerId(target)).public, null);
 });
+
+test("a port that stops qualifying for links loses its forward", async () => {
+  const server = await serving("api");
+  const target = listener(portOf(server));
+  const forwards = new Forwards(new ListenerAccess(async () => [target], 0));
+  const dir = await mkdtemp(join(tmpdir(), "ports-requalify-"));
+  const shares = new Shares(forwards, new Records(join(dir, "shares.json")));
+  try {
+    await forwards.open(target, "127.0.0.1");
+    assert.equal([...forwards.entries()].length, 1);
+    shares.stillLinkable = async () => false;
+    await (shares as unknown as { check(): Promise<void> }).check();
+    assert.equal([...forwards.entries()].length, 0);
+  } finally {
+    await shares.stopAll();
+    await close(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});

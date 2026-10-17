@@ -19,8 +19,14 @@ const port = z.object({
   source: z.enum(["process", "docker"]),
   /** The Paseo service script that was given this port, if any. */
   service: z.string().nullable(),
-  /** A web server: it gets links. Databases, caches and other services are only listed. */
-  web: z.boolean(),
+  /** What it speaks, from its answer to one request; `unknown` until it answers. */
+  protocol: z.enum(["http", "https", "other", "unknown"]),
+  /** It gets links: an HTTP server that's a process, serves a page, or that you allowed. */
+  links: z.boolean(),
+  /** An HTTP server that only gets links if you allow it, like a container's API. */
+  allowable: z.boolean(),
+  /** You allowed links for it. */
+  allowed: z.boolean(),
   /** host:port it can be reached at as it is, without a forward; null when only this machine can. */
   reach: z.string().nullable(),
   /** Where your own devices open it. */
@@ -118,5 +124,7 @@ export const linkSettings = defineSettings({
   schema: z.object({
     /** Host name or address the app reaches this machine at; empty picks one automatically. */
     linkHost: z.string().default(""),
+    /** Ports you allowed links for though they don't get them by default, by server identity. */
+    allowed: z.array(z.string()).default([]),
   }),
 });

@@ -1,10 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl } from "@getpaseo/plugin/client";
+import { openExternalUrl, useSettings } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import type { Access, Port, Provider, Sharing, SharingOption } from "../shared/contracts";
+import {
+  linkSettings,
+  type Access,
+  type Port,
+  type Provider,
+  type Sharing,
+  type SharingOption,
+} from "../shared/contracts";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
 import { Button, Checkbox, faint, IconButton, Options, Pill, sizes, TextAction } from "./ui";
 
@@ -16,6 +23,10 @@ interface Actions {
   /** `download`: the user agreed to download cloudflared first. */
   publish(port: Port, provider: Provider, access: Access, download: boolean): void;
   stop(port: Port, level?: "private" | "public"): void;
+  /** Ends whatever links a port still has, public and private. */
+  endLinks(port: Port): void;
+  /** Allows links for a port that doesn't get them by default, or takes that back. */
+  allow(port: Port, allowed: boolean): void;
 }
 
 /** Works now, or once the plugin downloads what it needs. */
@@ -293,6 +304,18 @@ function PortItem({
             {port.detail}
           </Text>
         ) : null}
+        {port.allowed ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={small}>Links allowed by you</Text>
+            <TextAction
+              theme={theme}
+              label="Undo"
+              accessibilityLabel={`Stop allowing links for port ${port.port}`}
+              disabled={busy}
+              onPress={() => actions.allow(port, false)}
+            />
+          </View>
+        ) : null}
         {port.private ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
@@ -395,72 +418,141 @@ function PortItem({
   );
 }
 
-/** A port that isn't a web server: no links, only the address it's reachable at already. */
+/**
+ * A port that doesn't get links: only the address it's reachable at already, why it gets no
+ * links, and Allow links for an HTTP server like a container's API.
+ */
 function OtherPortRow({
   theme,
   compact,
   port,
   first,
+  busy,
   actions,
 }: {
   theme: PluginTheme;
   compact: boolean;
   port: Port;
   first: boolean;
+  busy: boolean;
   actions: Actions;
 }) {
   const c = theme.colors;
   const s = sizes(compact);
+  const indent = s.icon + 8;
   const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
+  const note =
+    port.protocol === "unknown"
+      ? "Hasn't answered as a web server yet."
+      : port.protocol === "https"
+        ? "Speaks HTTPS, which Ports doesn't make links for yet."
+        : port.allowable
+          ? "An HTTP server without a web page, like an API."
+          : null;
+  // links it had before it stopped qualifying, while they're removed
+  const error = port.public?.error ?? port.private?.error;
+  const leftover = !!(port.public || port.private);
   return (
     <View
       style={{
-        flexDirection: compact ? "column" : "row",
-        alignItems: compact ? "stretch" : "center",
-        gap: compact ? 2 : 8,
+        gap: 4,
         paddingHorizontal: 12,
         paddingVertical: compact ? 12 : 10,
         borderTopWidth: first ? 0 : 1,
         borderTopColor: c.border,
       }}
     >
-      <View style={{ flex: compact ? undefined : 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon
-          name={port.source === "docker" ? "Container" : "Server"}
-          size={s.icon}
-          color={c.foregroundMuted}
-        />
-        <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
-          <Text style={{ fontWeight: "600" }}>{port.port}</Text>
-          <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
-        </Text>
-      </View>
       <View
-        style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? s.icon + 8 : 0 }}
+        style={{
+          flexDirection: compact ? "column" : "row",
+          alignItems: compact ? "stretch" : "center",
+          gap: compact ? 2 : 8,
+        }}
       >
-        {port.reach ? (
-          <>
-            <Text style={small} numberOfLines={1} selectable>
-              {port.reach}
-            </Text>
+        <View style={{ flex: compact ? undefined : 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Icon
+            name={port.source === "docker" ? "Container" : "Server"}
+            size={s.icon}
+            color={c.foregroundMuted}
+          />
+          <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
+            <Text style={{ fontWeight: "600" }}>{port.port}</Text>
+            <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
+          </Text>
+          {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
+        </View>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? indent : 0 }}
+        >
+          {port.reach ? (
+            <>
+              <Text style={small} numberOfLines={1} selectable>
+                {port.reach}
+              </Text>
+              <TextAction
+                theme={theme}
+                label="Copy"
+                accessibilityLabel={`Copy the address of port ${port.port}`}
+                onPress={() => actions.copy(port, "Address", port.reach!)}
+              />
+            </>
+          ) : (
+            <Text style={small}>This machine only</Text>
+          )}
+        </View>
+      </View>
+      {note ? (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 8,
+            paddingLeft: indent,
+          }}
+        >
+          <Text style={small}>{note}</Text>
+          {port.allowable ? (
             <TextAction
               theme={theme}
-              label="Copy"
-              accessibilityLabel={`Copy the address of port ${port.port}`}
-              onPress={() => actions.copy(port, "Address", port.reach!)}
+              label="Allow links"
+              accessibilityLabel={`Allow links for port ${port.port}`}
+              disabled={busy}
+              onPress={() => actions.allow(port, true)}
             />
-          </>
-        ) : (
-          <Text style={small}>This machine only</Text>
-        )}
-      </View>
+          ) : null}
+        </View>
+      ) : null}
+      {leftover ? (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 8,
+            paddingLeft: indent,
+          }}
+        >
+          <Text style={{ ...small, color: error ? c.statusDanger : c.foregroundMuted }}>
+            {error ?? "Its links are being removed."}
+          </Text>
+          <TextAction
+            theme={theme}
+            danger
+            label={error ? "Retry cleanup" : "Stop"}
+            accessibilityLabel={`Remove the links to port ${port.port}`}
+            disabled={busy}
+            onPress={() => actions.endLinks(port)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
 
 /**
- * A workspace's open ports, each web server with Open, Copy link and Share publicly. The Ports panel and the
- * header button's dropdown both show this.
+ * A workspace's open ports: web servers with Open, Copy link and Share publicly, and the rest
+ * with the address they're reachable at. The Ports panel and the header button's dropdown show it.
  */
 export function PortList({
   theme,
@@ -489,8 +581,9 @@ export function PortList({
   const [publishing, setPublishing] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, string>>({});
   const all = scan.data?.workspaces[workspaceId] ?? [];
-  const ports = all.filter((port) => port.web);
-  const others = webOnly ? [] : all.filter((port) => !port.web);
+  const ports = all.filter((port) => port.links);
+  const others = webOnly ? [] : all.filter((port) => !port.links);
+  const settings = useSettings(linkSettings);
 
   const perform = async (port: Port, work: (update: (text: string) => void) => Promise<void>) => {
     if (pending.current.has(port.id)) return;
@@ -542,6 +635,20 @@ export function PortList({
     stop: (port, level = "public") =>
       void perform(port, async () => {
         await rpcs.unshare({ workspaceId, id: port.id, level });
+      }),
+    endLinks: (port) =>
+      void perform(port, async () => {
+        if (port.public) await rpcs.unshare({ workspaceId, id: port.id, level: "public" });
+        if (port.private) await rpcs.unshare({ workspaceId, id: port.id, level: "private" });
+      }),
+    allow: (port, allowed) =>
+      void perform(port, async () => {
+        if (settings.status !== "ready") throw new Error("Ports' settings haven't loaded yet. Try again.");
+        const ids = new Set(settings.values.allowed);
+        if (allowed) ids.add(port.id);
+        else ids.delete(port.id);
+        if (!(await settings.save({ ...settings.values, allowed: [...ids] }, settings.revision)))
+          throw new Error("Couldn't save that. Try again.");
       }),
   };
 
@@ -596,7 +703,7 @@ export function PortList({
       {others.length ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 16 }}>
-            Other ports, like databases and caches, aren't web servers, so they get no links.
+            Other ports, like databases and caches, get no links.
           </Text>
           <View style={card}>
             {others.map((port, i) => (
@@ -606,6 +713,7 @@ export function PortList({
                 compact={compact}
                 port={port}
                 first={i === 0}
+                busy={!!progress[port.id]}
                 actions={actions}
               />
             ))}

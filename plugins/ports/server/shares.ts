@@ -108,6 +108,11 @@ export class Shares {
   private stopping = false;
   private lifetime = new AbortController();
   readonly ready: Promise<void>;
+  /**
+   * Whether a server still gets links. The watchdog asks while links exist, so a port that stops
+   * qualifying loses them even when no app is open to scan.
+   */
+  stillLinkable: ((target: Listener) => Promise<boolean>) | undefined;
 
   constructor(
     private readonly forwards: Forwards,
@@ -480,6 +485,17 @@ export class Shares {
     this.startWatching();
   }
 
+  /** Whether the plugin shares this server, privately or publicly. */
+  has(id: string): boolean {
+    return this.privates.has(id) || this.publics.has(id);
+  }
+
+  /** Ends every link to a server: its public link, then its tailnet link or forward. */
+  async endLinks(id: string): Promise<void> {
+    await this.unshare(id, "public").catch((error) => console.error(`ending public link failed:`, error));
+    await this.unshare(id, "private").catch((error) => console.error(`ending private link failed:`, error));
+  }
+
   private async check(): Promise<void> {
     const targets = new Map<string, Target>();
     for (const [port, s] of this.privates) targets.set(port, s.target);
@@ -503,6 +519,11 @@ export class Shares {
       const status = await this.forwards.access.status(target).catch(() => "missing" as const);
       if (status === "present") {
         this.missingSince.delete(port);
+        // a checker that fails leaves links alone; the next check asks again
+        if (this.stillLinkable && !(await this.stillLinkable(target).catch(() => true))) {
+          console.log(`port ${target.port} no longer gets links; ending them`);
+          await this.endLinks(port);
+        }
         continue;
       }
       const since = this.missingSince.get(port) ?? now;

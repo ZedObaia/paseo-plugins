@@ -14,9 +14,16 @@ const DOCKER =
 
 // Label values can contain commas, so ask for the labels needed, each JSON-encoded.
 const label = (key: string) => `{{json (.Label "${key}")}}`;
-const PS_FORMAT = `{"Names":{{json .Names}},"Image":{{json .Image}},"Ports":{{json .Ports}},"Service":${label("com.docker.compose.service")},"WorkingDir":${label("com.docker.compose.project.working_dir")}}`;
+const PS_FORMAT = `{"ID":{{json .ID}},"Names":{{json .Names}},"Image":{{json .Image}},"Ports":{{json .Ports}},"Service":${label("com.docker.compose.service")},"WorkingDir":${label("com.docker.compose.project.working_dir")}}`;
 
-type PsRow = { Names: string; Image: string; Ports: string; Service: string; WorkingDir: string };
+type PsRow = {
+  ID?: string;
+  Names: string;
+  Image: string;
+  Ports: string;
+  Service: string;
+  WorkingDir: string;
+};
 
 /**
  * Published TCP ports from `docker ps`'s Ports column, e.g.
@@ -50,6 +57,7 @@ export function containerListeners(row: PsRow): Listener[] {
   }
   return [...widest].map(([port, { address, containerPort }]) => ({
     identity: row.Names,
+    instance: row.ID,
     port,
     address,
     containerPort,

@@ -10,24 +10,42 @@ import {
 } from "./shared/contracts";
 import { isLoopback, urlHost } from "./server/address";
 import { installCloudflared } from "./server/cloudflared";
-import { PortKinds } from "./server/kind";
+import { Detections, linkable } from "./server/kind";
+import { listenerId } from "./server/identity";
 import { Forwards, linkHost } from "./server/links";
 import { scan, toPort, workspaceListener, type Scan } from "./server/scan";
+import type { Listener } from "./server/processes";
 import { Shares } from "./server/shares";
 
 // Every open panel and header polls; a scan this recent answers them all.
 const FRESH_MS = 1_500;
 
+/** Why a port gets no links: links need a positive HTTP answer, and some need your allowance. */
+function noLinks(listener: Listener, protocol: string | undefined): string {
+  const port = `Port ${listener.port}`;
+  if (protocol === "http") return `${port} doesn't serve a web page. Allow links for it first.`;
+  if (protocol === "https") return `${port} only speaks HTTPS, which Ports doesn't make links for yet.`;
+  if (protocol === "other") return `${port} isn't a web server, so Ports doesn't make links to it.`;
+  return `${port} hasn't answered as a web server yet. Try again in a moment.`;
+}
+
 export default function contribute(server: PluginServerContext) {
   const forwards = new Forwards();
   const shares = new Shares(forwards);
-  const kinds = new PortKinds();
+  const detections = new Detections();
   let hostSetting = "";
+  let allowed: ReadonlySet<string> = new Set();
+  const getsLinks = (listener: Listener) =>
+    linkable(listener, detections.get(listener), allowed.has(listenerId(listener)));
+  shares.stillLinkable = async (target) => {
+    await detections.update([target], false);
+    return getsLinks(target);
+  };
   let last: { at: number; scan: Scan } | undefined;
   let running: Promise<Scan> | undefined;
 
   const refresh = ({ paseo }: PluginHandlerContext) =>
-    (running ??= scan(paseo, linkHost(hostSetting), forwards, shares, kinds)
+    (running ??= scan(paseo, linkHost(hostSetting), forwards, shares, detections, allowed)
       .then((next) => ((last = { at: Date.now(), scan: next }), next))
       .finally(() => (running = undefined)));
   // Answers with the last scan and refreshes it in the background once it's stale, so polls
@@ -42,11 +60,13 @@ export default function contribute(server: PluginServerContext) {
 
   const settings = server.registerSettings(linkSettings);
   const keep = (state: Awaited<ReturnType<typeof settings.read>>) => {
-    if (state.status !== "ready" || state.values.linkHost === hostSetting) return;
+    if (state.status !== "ready") return;
+    allowed = new Set(state.values.allowed);
+    last = undefined;
+    if (state.values.linkHost === hostSetting) return;
     hostSetting = state.values.linkHost;
     // forwards listen on the old address
     forwards.closeAll();
-    last = undefined;
   };
   settings.read().then(keep, (error) => console.error("reading settings failed:", error));
   const unsubscribe = settings.subscribe(keep);
@@ -57,8 +77,7 @@ export default function contribute(server: PluginServerContext) {
     await running?.catch(() => {});
     const fresh = await refresh(context);
     const listener = workspaceListener(fresh.attributed, target);
-    if (kinds.get(listener) === "other")
-      throw new Error(`Port ${listener.port} isn't a web server, so Ports doesn't make links to it`);
+    if (!getsLinks(listener)) throw new Error(noLinks(listener, detections.get(listener)?.protocol));
     return { listener, host: fresh.host };
   };
   const changed = <T>(result: T) => ((last = undefined), result);

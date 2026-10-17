@@ -58,7 +58,7 @@ export function headerButtons(client: PluginClientContext): () => void {
     // only workspaces with web servers get a button, counting only those
     const workspaces: Record<string, Port[]> = {};
     for (const [workspaceId, ports] of Object.entries(all)) {
-      const web = ports.filter((port) => port.web);
+      const web = ports.filter((port) => port.links);
       if (web.length) workspaces[workspaceId] = web;
     }
     for (const [workspaceId, ports] of Object.entries(workspaces)) {

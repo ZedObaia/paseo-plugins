@@ -26,16 +26,29 @@ left out. A port the workspace's Paseo services were given is labelled with the 
 
 ## Which ports get links
 
-Only web servers: dev servers, APIs, and the web consoles some containers have. Databases,
-caches, queues and other services are listed under **Other ports** with the address they can
-already be reached at, to copy into a client, and Ports makes no link, forward or public address
-for them.
+Only HTTP servers. Ports asks each port once when it appears and gives links to one that answers
+HTTP:
 
-Ports knows the common ones by their program or container port (Postgres, MySQL, Redis, MongoDB,
-Memcached, RabbitMQ and others) and never contacts them. For any other port it asks once, when
-the server appears, with a request that HTTP servers turn down without running any app code: one
-that answers HTTP is a web server. A container also has to serve a page, so MinIO's console gets
-links and its storage API doesn't. A server that doesn't answer yet is asked again later.
+- A process that answers HTTP, like a dev server or an API, gets links.
+- A container gets links when it serves a web page, like a database's web console. Its other HTTP
+  ports, like MinIO's storage API, are listed under **Other ports** with **Allow links**; **Undo**
+  takes that back.
+- Databases, caches and queues get no links. Ports knows the common ones by program and default
+  port (Postgres, MySQL, Redis, MongoDB, Memcached, AMQP and others) and never contacts those.
+  Their programs' other ports are asked like any port, so RabbitMQ's management page gets links.
+- Servers that only speak HTTPS are listed but get no links yet.
+
+A port that hasn't answered gets no links; Ports asks again, waiting longer each time. An answer
+holds for the process or container that gave it: Ports asks again when the server restarts and
+after ten minutes, or sooner for a container whose answer wasn't a page yet. A server that's busy
+for a moment keeps its last answer. A port that stops qualifying, or that you take your allowance
+back from, loses the links it had.
+
+Other ports show the address they can already be reached at, to copy into a client.
+
+To ask, Ports sends a process `HEAD /` without a Host header, which Node's HTTP servers refuse
+before running any app code; servers that accept it answer it like any request. A container gets
+`GET /` asking for HTML.
 
 ## Your own devices
 

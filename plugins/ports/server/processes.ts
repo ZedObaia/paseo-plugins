@@ -26,6 +26,8 @@ export interface Listener {
   identity?: string;
   /** For a container: its own port this one is published from. */
   containerPort?: number;
+  /** For a container: its ID, which a new container of the same name doesn't share. */
+  instance?: string;
   port: number;
   address: string;
   name: string;

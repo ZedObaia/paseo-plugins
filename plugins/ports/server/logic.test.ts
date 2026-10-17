@@ -68,6 +68,7 @@ test("parsePorts reads published TCP ports and skips unpublished and UDP ones", 
 
 test("containerListeners ties a Compose container to its project directory", () => {
   const [minio] = containerListeners({
+    ID: "c0ffee",
     Names: "app-minio-1",
     Image: "minio/minio",
     Ports: "0.0.0.0:9001->9001/tcp, [::]:9001->9001/tcp",
@@ -76,6 +77,7 @@ test("containerListeners ties a Compose container to its project directory", () 
   });
   assert.deepEqual(minio, {
     identity: "app-minio-1",
+    instance: "c0ffee",
     port: 9001,
     address: "0.0.0.0",
     containerPort: 9001,
@@ -260,13 +262,18 @@ test("toPort links each bind where the app can reach it", () => {
   ]);
 });
 
-test("toPort gives a port that isn't a web server no link, only where it can be reached", () => {
+test("toPort gives a port that doesn't get links none, only where it can be reached", () => {
   const none: Shared = { forwardedAt: null, privateUrl: null, public: null };
   const db = (address: string, host: string) => {
-    const p = toPort(listener(5432, {}, address), host, none, null, true, false);
-    return [p.web, p.needsLink, p.reach];
+    const p = toPort(listener(5432, {}, address), host, none, null, true, {
+      detection: { protocol: "other", page: false },
+      links: false,
+      allowable: false,
+      allowed: false,
+    });
+    return [p.links, p.protocol, p.needsLink, p.reach];
   };
-  assert.deepEqual(db("0.0.0.0", "100.1.2.3"), [false, false, "100.1.2.3:5432"]);
-  assert.deepEqual(db("127.0.0.1", "100.1.2.3"), [false, false, null]);
-  assert.deepEqual(db("127.0.0.1", "localhost"), [false, false, "localhost:5432"]);
+  assert.deepEqual(db("0.0.0.0", "100.1.2.3"), [false, "other", false, "100.1.2.3:5432"]);
+  assert.deepEqual(db("127.0.0.1", "100.1.2.3"), [false, "other", false, null]);
+  assert.deepEqual(db("127.0.0.1", "localhost"), [false, "other", false, "localhost:5432"]);
 });

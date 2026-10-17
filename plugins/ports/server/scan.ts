@@ -9,7 +9,7 @@ import { assign } from "./match";
 import { processListeners, type Listener } from "./processes";
 import type { Shares } from "./shares";
 import { listenerId } from "./identity";
-import type { PortKinds } from "./kind";
+import { allowable, linkable, type Detection, type Detections } from "./kind";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Workspace = Awaited<ReturnType<Paseo["workspaces"]["list"]>>["entries"][number];
@@ -73,7 +73,12 @@ export function toPort(
   shared: Shared,
   service: string | null,
   tailnetHttps = false,
-  web = true,
+  kind: { detection: Detection; links: boolean; allowable: boolean; allowed: boolean } = {
+    detection: { protocol: "http", page: true },
+    links: true,
+    allowable: false,
+    allowed: false,
+  },
 ): Port {
   const local = isLoopback(host);
   const loopback = isLoopback(listener.address);
@@ -90,9 +95,12 @@ export function toPort(
     source: listener.source,
     service,
     url: shared.privateUrl ?? `http://${urlHost(at)}:${shared.forwardedAt ?? listener.port}`,
-    web,
+    protocol: kind.detection.protocol,
+    links: kind.links,
+    allowable: kind.allowable,
+    allowed: kind.allowed,
     reach: !loopback || local ? `${urlHost(at)}:${listener.port}` : null,
-    needsLink: web && !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
+    needsLink: kind.links && !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
     private: shared.privateUrl
       ? { https: true, ...(shared.privateError ? { error: shared.privateError } : {}) }
       : forwarded
@@ -107,7 +115,8 @@ export async function scan(
   host: string,
   forwards: Forwards,
   shares: Shares,
-  kinds: PortKinds,
+  detections: Detections,
+  allowed: ReadonlySet<string>,
 ): Promise<Scan> {
   let error: string | null = null;
   const [workspaces, processes, containers, sharing] = await Promise.all([
@@ -128,7 +137,26 @@ export async function scan(
   });
   const assigned = assign(listeners, dirs);
   const services = new Map(live.map((w) => [w.id, w.scripts.filter((s) => s.type === "service")]));
-  await kinds.update([...assigned.values()].flat());
+  const attributed = [...assigned.values()].flat();
+  await detections.update(attributed);
+  const kindOf = (l: Listener) => {
+    const detection = detections.get(l) ?? { protocol: "unknown" as const, page: false };
+    const id = listenerId(l);
+    return {
+      detection,
+      links: linkable(l, detection, allowed.has(id)),
+      allowable: allowable(l, detection),
+      allowed: allowed.has(id),
+    };
+  };
+  // a port that no longer gets links, because its answer changed or you took back your allowance,
+  // loses the ones it has; shares blocks their traffic at once
+  for (const l of attributed) {
+    const id = listenerId(l);
+    if (kindOf(l).links || !(forwards.get(id) || shares.has(id))) continue;
+    console.log(`port ${l.port} no longer gets links; ending them`);
+    void shares.endLinks(id);
+  }
   const output: Scan["output"] = { workspaces: {}, linkHost: host, sharing, error };
   for (const [id, ports] of assigned) {
     output.workspaces[id] = ports.map((l) =>
@@ -138,7 +166,7 @@ export async function scan(
         { forwardedAt: forwards.get(listenerId(l))?.port ?? null, ...shares.describe(listenerId(l)) },
         services.get(id)?.find((s) => s.port === l.port)?.scriptName ?? null,
         sharing.https.available,
-        kinds.get(l) !== "other",
+        kindOf(l),
       ),
     );
   }

@@ -4,18 +4,27 @@ import type { Listener } from "./processes";
 import { upstreamOf } from "./proxy";
 
 /**
- * Whether a port gets links. Web servers do: dev servers, APIs, and containers' web consoles.
- * Databases, caches, queues and other services don't: a browser can't use them, and a public
- * link to one would only expose it.
+ * What a port speaks, from its answer to one request. `unknown`: it hasn't answered yet, so it
+ * gets no links until it does.
  */
-export type PortKind = "web" | "other";
+export type Protocol = "http" | "https" | "other" | "unknown";
 
-// Recognized by name, so they're never sent a stranger's request (Postgres and Redis log one).
-const NOT_WEB_PROGRAMS =
-  /^(postgres|postmaster|mysqld|mariadbd|redis-server|redis|valkey-server|valkey|mongod|mongos|mongo|memcached|sshd|beam\.smp|epmd|rabbitmq|clickhouse-server|etcd|nats-server|cockroach|mysql|mariadb|postgresql|keydb|dragonfly)$/;
-// Containers' own ports for the same kinds of service.
-const NOT_WEB_CONTAINER_PORTS = new Set([
-  22, 1433, 1521, 2181, 3306, 4222, 5432, 5672, 6379, 9042, 9092, 11211, 26257, 27017,
+export interface Detection {
+  protocol: Protocol;
+  /** Its HTTP answer was a web page: HTML, or a redirect. */
+  page: boolean;
+}
+
+const unknown: Detection = { protocol: "unknown", page: false };
+
+// Programs that only speak their own protocol on every port they open, and the default ports of
+// such services. These are never sent a request (Postgres and Redis log a stranger's), so they
+// stay out of links without a probe. Programs that also serve HTTP on some port, like RabbitMQ's
+// management UI, aren't listed: each of their ports is asked.
+const NOT_HTTP_PROGRAMS =
+  /^(postgres|postmaster|mysqld|mariadbd|redis-server|valkey-server|keydb-server|mongod|mongos|memcached|sshd|epmd)$/;
+const NOT_HTTP_PORTS = new Set([
+  22, 1433, 1521, 2181, 3306, 4222, 5432, 5672, 6379, 9042, 9092, 11211, 27017,
 ]);
 
 const program = (command: string | undefined) => {
@@ -23,106 +32,179 @@ const program = (command: string | undefined) => {
   return first.slice(first.lastIndexOf("/") + 1);
 };
 
-/** What a port is, when its program or container port says so without asking it. */
-export function knownKind(listener: Listener): PortKind | null {
-  if (listener.source === "docker")
-    return (listener.containerPort !== undefined && NOT_WEB_CONTAINER_PORTS.has(listener.containerPort)) ||
-      NOT_WEB_PROGRAMS.test(listener.name)
-      ? "other"
-      : null;
-  return NOT_WEB_PROGRAMS.test(listener.name) || NOT_WEB_PROGRAMS.test(program(listener.identity))
-    ? "other"
-    : null;
+/** What an endpoint is without asking it: a database or cache program, or its default port. */
+export function knownProtocol(listener: Listener): Protocol | null {
+  const port = listener.source === "docker" ? listener.containerPort : listener.port;
+  if (port !== undefined && NOT_HTTP_PORTS.has(port)) return "other";
+  if (
+    listener.source === "process" &&
+    (NOT_HTTP_PROGRAMS.test(listener.name) || NOT_HTTP_PROGRAMS.test(program(listener.identity)))
+  )
+    return "other";
+  return null;
 }
 
-/**
- * What a port's answer to an HTTP request says about it. Any HTTP answer makes a process a web
- * server. A container also needs to serve a page (HTML, or a redirect to one): the ones that
- * answer HTTP with something else, like MinIO's storage API, are services for other programs.
- */
-export function kindOfReply(reply: string, needsPage: boolean): PortKind {
-  const status = /^HTTP\/\d(?:\.\d)? (\d{3})/.exec(reply);
-  if (!status) return "other";
-  if (!needsPage) return "web";
+/** What an answer says: an HTTP status line is HTTP, a TLS record is HTTPS, anything else isn't either. */
+export function detectReply(reply: Buffer): Detection {
+  // a TLS server answers plain text with an alert (0x15) or a handshake (0x16) record
+  if (reply.length >= 2 && (reply[0] === 0x15 || reply[0] === 0x16) && reply[1] === 0x03)
+    return { protocol: "https", page: false };
+  const text = reply.toString("latin1");
+  const status = /^HTTP\/\d(?:\.\d)? (\d{3})/.exec(text);
+  if (!status) return { protocol: "other", page: false };
   const code = Number(status[1]);
-  if (code >= 300 && code < 400) return "web";
-  return /^content-type:\s*text\/html/im.test(reply) ? "web" : "other";
+  return {
+    protocol: "http",
+    page: (code >= 300 && code < 400) || /^content-type:\s*text\/html/im.test(text),
+  };
 }
 
 /**
- * Asks a port once whether it speaks HTTP. A process gets `HEAD /` without a Host header, which
- * Node's HTTP servers turn down before any app code runs, so a dev server doesn't build a page to
- * answer it. A container gets `GET /` asking for HTML, to tell a web console from an API. A server
- * that speaks first (MySQL, SSH, SMTP) isn't a web server. "unknown": it didn't answer in time.
+ * Asks a port once what it speaks. A process gets `HEAD /` without a Host header: Node's HTTP
+ * servers refuse that before any app code runs, so a dev server doesn't build a page to answer,
+ * while servers that accept it answer as for any request. A container gets `GET /` asking for
+ * HTML, to tell a web console from an API. A server that speaks first (MySQL, SSH, SMTP) isn't
+ * HTTP. No answer in time, or a refused connection, is `unknown`.
  */
-export function probe(listener: Listener, timeoutMs = 1_500): Promise<PortKind | "unknown"> {
-  const needsPage = listener.source === "docker";
+export function probe(listener: Listener, timeoutMs = 1_500): Promise<Detection> {
   const { connectTo, port } = upstreamOf(listener.address, listener.port);
-  const request = needsPage
-    ? `GET / HTTP/1.1\r\nHost: localhost:${port}\r\nAccept: text/html\r\nUser-Agent: Paseo-Ports\r\nConnection: close\r\n\r\n`
-    : "HEAD / HTTP/1.1\r\nUser-Agent: Paseo-Ports\r\nConnection: close\r\n\r\n";
+  const request =
+    listener.source === "docker"
+      ? `GET / HTTP/1.1\r\nHost: localhost:${port}\r\nAccept: text/html\r\nUser-Agent: Paseo-Ports\r\nConnection: close\r\n\r\n`
+      : "HEAD / HTTP/1.1\r\nUser-Agent: Paseo-Ports\r\nConnection: close\r\n\r\n";
   return new Promise((resolve) => {
     const socket = connect(port, connectTo);
-    let reply = "";
+    const chunks: Buffer[] = [];
+    let size = 0;
     let asked = false;
     let ask: ReturnType<typeof setTimeout> | undefined;
-    const done = (kind: PortKind | "unknown") => {
+    const reply = () => Buffer.concat(chunks);
+    const done = (detection: Detection) => {
       clearTimeout(ask);
       clearTimeout(timer);
       socket.destroy();
-      resolve(kind);
+      resolve(detection);
     };
-    const timer = setTimeout(() => done(reply ? kindOfReply(reply, needsPage) : "unknown"), timeoutMs);
+    const timer = setTimeout(() => done(size ? detectReply(reply()) : unknown), timeoutMs);
     socket.once("connect", () => {
       ask = setTimeout(() => {
         asked = true;
         socket.write(request);
       }, 100);
     });
-    socket.on("data", (chunk) => {
-      if (!asked) return done("other");
-      reply += chunk.toString("latin1");
-      if (reply.includes("\r\n\r\n") || reply.length > 8_192) done(kindOfReply(reply, needsPage));
+    socket.on("data", (chunk: Buffer) => {
+      if (!asked) return done({ protocol: "other", page: false });
+      chunks.push(chunk);
+      size += chunk.length;
+      const text = reply().toString("latin1");
+      if (text.includes("\r\n\r\n") || size > 8_192 || !text.startsWith("HTTP/".slice(0, Math.min(5, size))))
+        done(detectReply(reply()));
     });
-    socket.once("end", () => done(reply ? kindOfReply(reply, needsPage) : "other"));
-    socket.once("error", () => done(reply ? kindOfReply(reply, needsPage) : "unknown"));
+    socket.once("end", () => done(size ? detectReply(reply()) : { protocol: "other", page: false }));
+    socket.once("error", () => done(size ? detectReply(reply()) : unknown));
   });
 }
 
-// a server that didn't answer is asked again after this long; until then a process counts as a
-// web server (one that's still starting) and a container doesn't
-const RETRY_MS = 15_000;
+/**
+ * Whether a port gets links: an HTTP server, if it's a process (a dev server or API), serves a
+ * page (a container's web console), or you allowed it. A container's other HTTP endpoints, like
+ * MinIO's storage API, are services for programs, so they wait for you to allow them.
+ */
+export function linkable(listener: Listener, detection: Detection | undefined, allowed: boolean): boolean {
+  if (detection?.protocol !== "http") return false;
+  return listener.source === "process" || detection.page || allowed;
+}
 
-/** Each server's kind, asked once and kept while it runs; a restart keeps its identity. */
-export class PortKinds {
-  private kinds = new Map<string, { kind: PortKind; until: number }>();
+/** An HTTP server that doesn't get links unless you allow it. */
+export const allowable = (listener: Listener, detection: Detection | undefined) =>
+  detection?.protocol === "http" && listener.source === "docker" && !detection.page;
 
-  constructor(private readonly ask = probe) {}
+// how long an answer holds before the port is asked again
+const SETTLED_MS = 10 * 60_000;
+// a container whose HTTP answer wasn't a page may still be starting: ask again sooner, backing off
+const NOT_A_PAGE_MS = [30_000, 60_000, 120_000, 300_000];
+// no answer yet: backing off, up to two minutes
+const UNANSWERED_MS = [5_000, 10_000, 20_000, 40_000, 80_000, 120_000];
 
-  get(listener: Listener): PortKind | undefined {
-    return knownKind(listener) ?? this.kinds.get(listenerId(listener))?.kind;
+interface Entry {
+  /** The running process or container the detection is for. */
+  instance: string;
+  detection: Detection;
+  /** The detection is from an earlier instance, kept until this one answers. */
+  carried: boolean;
+  attempts: number;
+  next: number;
+}
+
+const instanceOf = (listener: Listener) => `${listener.source}:${listener.instance ?? listener.pid ?? ""}`;
+
+/**
+ * Each server's detection, kept for the process or container instance it came from and asked
+ * again when it expires. A restart (a new pid or container) is asked again at once; until it
+ * answers, the last answer stands, so a dev server that restarts keeps its links. A port that
+ * stops answering keeps its last real answer too.
+ */
+export class Detections {
+  private entries = new Map<string, Entry>();
+
+  constructor(
+    private readonly ask: (listener: Listener) => Promise<Detection> = probe,
+    private readonly now = () => Date.now(),
+  ) {}
+
+  get(listener: Listener): Detection | undefined {
+    const known = knownProtocol(listener);
+    if (known) return { protocol: known, page: false };
+    return this.entries.get(listenerId(listener))?.detection;
   }
 
-  /** Works out the kinds of these listeners, asking only those not known yet. */
-  async update(listeners: readonly Listener[]): Promise<void> {
-    const now = Date.now();
+  /**
+   * Asks the listeners that are due. `all`: these are every listener there is, so the ones not
+   * among them are forgotten.
+   */
+  async update(listeners: readonly Listener[], all = true): Promise<void> {
     const seen = new Set<string>();
     await Promise.all(
       listeners.map(async (listener) => {
         const id = listenerId(listener);
         seen.add(id);
-        if (knownKind(listener)) return;
-        const known = this.kinds.get(id);
-        if (known && known.until > now) return;
-        const kind = await this.ask(listener);
-        this.kinds.set(
-          id,
-          kind === "unknown"
-            ? { kind: listener.source === "docker" ? "other" : "web", until: now + RETRY_MS }
-            : { kind, until: Number.POSITIVE_INFINITY },
-        );
+        if (knownProtocol(listener)) return;
+        const instance = instanceOf(listener);
+        const entry = this.entries.get(id);
+        if (entry && entry.instance === instance && entry.next > this.now()) return;
+        const answer = await this.ask(listener);
+        this.entries.set(id, this.settle(listener, entry, instance, answer));
       }),
     );
-    for (const id of this.kinds.keys()) if (!seen.has(id)) this.kinds.delete(id);
+    if (all) for (const id of this.entries.keys()) if (!seen.has(id)) this.entries.delete(id);
+  }
+
+  private settle(listener: Listener, entry: Entry | undefined, instance: string, answer: Detection): Entry {
+    const same = entry?.instance === instance;
+    const attempts = same ? entry.attempts + 1 : 0;
+    const at = (waits: number[]) => this.now() + waits[Math.min(attempts, waits.length - 1)];
+    if (answer.protocol !== "unknown") {
+      // only a container needs a page, so only its answer is worth asking again soon
+      const notAPage = listener.source === "docker" && answer.protocol === "http" && !answer.page;
+      return {
+        instance,
+        detection: answer,
+        carried: false,
+        attempts,
+        next: notAPage ? at(NOT_A_PAGE_MS) : this.now() + SETTLED_MS,
+      };
+    }
+    // no answer: the last real one stands, from this instance for as long as it runs, or from
+    // the instance before a restart for a few tries
+    const last = entry && entry.detection.protocol !== "unknown" ? entry.detection : null;
+    const carried = !same || entry.carried;
+    const keep = last !== null && !(carried && attempts >= 3);
+    return {
+      instance,
+      detection: keep ? last : unknown,
+      carried: keep && carried,
+      attempts,
+      next: at(UNANSWERED_MS),
+    };
   }
 }
