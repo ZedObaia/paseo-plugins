@@ -3,6 +3,7 @@
   "name": "Ports",
   "description": "Open ports of each workspace, with links to open them and sharing over Tailscale or a Cloudflare tunnel.",
   "icon": "assets/icon.png",
+  "media": ["assets/hero.png", "assets/app.png", "assets/share.png", "assets/phone.png"],
   "requirements": {
     "paseo": ">=0.11.4"
   }
