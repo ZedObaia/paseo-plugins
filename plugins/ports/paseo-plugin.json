@@ -1,0 +1,8 @@
+{
+  "id": "ports",
+  "name": "Ports",
+  "description": "Open ports of each workspace, with links that open them in a browser.",
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}
