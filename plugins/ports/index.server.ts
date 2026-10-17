@@ -10,6 +10,7 @@ import {
 } from "./shared/contracts";
 import { isLoopback, urlHost } from "./server/address";
 import { installCloudflared } from "./server/cloudflared";
+import { PortKinds } from "./server/kind";
 import { Forwards, linkHost } from "./server/links";
 import { scan, toPort, workspaceListener, type Scan } from "./server/scan";
 import { Shares } from "./server/shares";
@@ -20,12 +21,13 @@ const FRESH_MS = 1_500;
 export default function contribute(server: PluginServerContext) {
   const forwards = new Forwards();
   const shares = new Shares(forwards);
+  const kinds = new PortKinds();
   let hostSetting = "";
   let last: { at: number; scan: Scan } | undefined;
   let running: Promise<Scan> | undefined;
 
   const refresh = ({ paseo }: PluginHandlerContext) =>
-    (running ??= scan(paseo, linkHost(hostSetting), forwards, shares)
+    (running ??= scan(paseo, linkHost(hostSetting), forwards, shares, kinds)
       .then((next) => ((last = { at: Date.now(), scan: next }), next))
       .finally(() => (running = undefined)));
   // Answers with the last scan and refreshes it in the background once it's stale, so polls
@@ -55,6 +57,8 @@ export default function contribute(server: PluginServerContext) {
     await running?.catch(() => {});
     const fresh = await refresh(context);
     const listener = workspaceListener(fresh.attributed, target);
+    if (kinds.get(listener) === "other")
+      throw new Error(`Port ${listener.port} isn't a web server, so Ports doesn't make links to it`);
     return { listener, host: fresh.host };
   };
   const changed = <T>(result: T) => ((last = undefined), result);

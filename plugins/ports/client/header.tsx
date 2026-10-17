@@ -17,7 +17,7 @@ function dropdown(client: PluginClientContext): ComponentType<PluginButtonConten
   return function HeaderPorts({ theme, host, layout, workspaceId, close }) {
     return (
       <View style={{ gap: 12, width: layout.compact ? undefined : 400 }}>
-        <PortList theme={theme} compact={layout.compact} hostId={host.id} workspaceId={workspaceId} />
+        <PortList theme={theme} compact={layout.compact} hostId={host.id} workspaceId={workspaceId} webOnly />
         <Pressable
           accessibilityRole="button"
           onPress={() => {
@@ -54,7 +54,13 @@ export function headerButtons(client: PluginClientContext): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  function show(workspaces: Record<string, Port[]>) {
+  function show(all: Record<string, Port[]>) {
+    // only workspaces with web servers get a button, counting only those
+    const workspaces: Record<string, Port[]> = {};
+    for (const [workspaceId, ports] of Object.entries(all)) {
+      const web = ports.filter((port) => port.web);
+      if (web.length) workspaces[workspaceId] = web;
+    }
     for (const [workspaceId, ports] of Object.entries(workspaces)) {
       const key = label(ports);
       const shown = buttons.get(workspaceId);

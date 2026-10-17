@@ -1,8 +1,8 @@
-Ports shows what each workspace is serving and lets you share it. A workspace with a listening
-port gets a button in its header that opens its list of ports; the **Ports** panel (Command
-Center, "Show open ports") shows the same list, in the Explorer on desktop and as a workspace tab
-on phones. Each port has **Open**, **Copy link** and **Make public…**. Open uses Paseo's browser
-on the desktop app and your browser on the web and on phones.
+Ports shows what each workspace is serving and lets you share it. A workspace running a web
+server gets a button in its header that lists them; the **Ports** panel (Command Center, "Show
+open ports") lists every port, in the Explorer on desktop and as a workspace tab on phones. Each
+web server has **Open**, **Copy link** and **Make public…**. Open uses Paseo's browser on the
+desktop app and your browser on the web and on phones.
 
 Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
 devices) or **Network** (anyone who can reach the machine), and a network forward says so before
@@ -23,6 +23,19 @@ workspace by:
 When several workspaces hold that directory, the deepest one wins, so a worktree inside a
 project's folder keeps its own ports. Agents, plugins and other processes Paseo runs itself are
 left out. A port the workspace's Paseo services were given is labelled with the service's name.
+
+## Which ports get links
+
+Only web servers: dev servers, APIs, and the web consoles some containers have. Databases,
+caches, queues and other services are listed under **Other ports** with the address they can
+already be reached at, to copy into a client, and Ports makes no link, forward or public address
+for them.
+
+Ports knows the common ones by their program or container port (Postgres, MySQL, Redis, MongoDB,
+Memcached, RabbitMQ and others) and never contacts them. For any other port it asks once, when
+the server appears, with a request that HTTP servers turn down without running any app code: one
+that answers HTTP is a web server. A container also has to serve a page, so MinIO's console gets
+links and its storage API doesn't. A server that doesn't answer yet is asked again later.
 
 ## Your own devices
 

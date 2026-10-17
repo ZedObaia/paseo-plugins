@@ -57,11 +57,11 @@ test("parsePorts reads published TCP ports and skips unpublished and UDP ones", 
       "0.0.0.0:5434->5432/tcp, [::]:5434->5432/tcp, :::8080->80/tcp, 127.0.0.1:8000-8001->8000-8001/tcp, 6379/tcp, 0.0.0.0:53->53/udp",
     ),
     [
-      { address: "0.0.0.0", port: 5434 },
-      { address: "::", port: 5434 },
-      { address: "::", port: 8080 },
-      { address: "127.0.0.1", port: 8000 },
-      { address: "127.0.0.1", port: 8001 },
+      { address: "0.0.0.0", port: 5434, containerPort: 5432 },
+      { address: "::", port: 5434, containerPort: 5432 },
+      { address: "::", port: 8080, containerPort: 80 },
+      { address: "127.0.0.1", port: 8000, containerPort: 8000 },
+      { address: "127.0.0.1", port: 8001, containerPort: 8001 },
     ],
   );
 });
@@ -78,6 +78,7 @@ test("containerListeners ties a Compose container to its project directory", () 
     identity: "app-minio-1",
     port: 9001,
     address: "0.0.0.0",
+    containerPort: 9001,
     name: "minio",
     detail: "minio/minio",
     pid: null,
@@ -257,4 +258,15 @@ test("toPort links each bind where the app can reach it", () => {
     false,
     { https: true },
   ]);
+});
+
+test("toPort gives a port that isn't a web server no link, only where it can be reached", () => {
+  const none: Shared = { forwardedAt: null, privateUrl: null, public: null };
+  const db = (address: string, host: string) => {
+    const p = toPort(listener(5432, {}, address), host, none, null, true, false);
+    return [p.web, p.needsLink, p.reach];
+  };
+  assert.deepEqual(db("0.0.0.0", "100.1.2.3"), [false, false, "100.1.2.3:5432"]);
+  assert.deepEqual(db("127.0.0.1", "100.1.2.3"), [false, false, null]);
+  assert.deepEqual(db("127.0.0.1", "localhost"), [false, false, "localhost:5432"]);
 });

@@ -9,6 +9,7 @@ import { assign } from "./match";
 import { processListeners, type Listener } from "./processes";
 import type { Shares } from "./shares";
 import { listenerId } from "./identity";
+import type { PortKinds } from "./kind";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Workspace = Awaited<ReturnType<Paseo["workspaces"]["list"]>>["entries"][number];
@@ -72,6 +73,7 @@ export function toPort(
   shared: Shared,
   service: string | null,
   tailnetHttps = false,
+  web = true,
 ): Port {
   const local = isLoopback(host);
   const loopback = isLoopback(listener.address);
@@ -88,7 +90,9 @@ export function toPort(
     source: listener.source,
     service,
     url: shared.privateUrl ?? `http://${urlHost(at)}:${shared.forwardedAt ?? listener.port}`,
-    needsLink: !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
+    web,
+    reach: !loopback || local ? `${urlHost(at)}:${listener.port}` : null,
+    needsLink: web && !shared.privateUrl && (tailnetHttps || (loopback && !local && !forwarded)),
     private: shared.privateUrl
       ? { https: true, ...(shared.privateError ? { error: shared.privateError } : {}) }
       : forwarded
@@ -98,7 +102,13 @@ export function toPort(
   };
 }
 
-export async function scan(paseo: Paseo, host: string, forwards: Forwards, shares: Shares): Promise<Scan> {
+export async function scan(
+  paseo: Paseo,
+  host: string,
+  forwards: Forwards,
+  shares: Shares,
+  kinds: PortKinds,
+): Promise<Scan> {
   let error: string | null = null;
   const [workspaces, processes, containers, sharing] = await Promise.all([
     listWorkspaces(paseo),
@@ -118,6 +128,7 @@ export async function scan(paseo: Paseo, host: string, forwards: Forwards, share
   });
   const assigned = assign(listeners, dirs);
   const services = new Map(live.map((w) => [w.id, w.scripts.filter((s) => s.type === "service")]));
+  await kinds.update([...assigned.values()].flat());
   const output: Scan["output"] = { workspaces: {}, linkHost: host, sharing, error };
   for (const [id, ports] of assigned) {
     output.workspaces[id] = ports.map((l) =>
@@ -127,6 +138,7 @@ export async function scan(paseo: Paseo, host: string, forwards: Forwards, share
         { forwardedAt: forwards.get(listenerId(l))?.port ?? null, ...shares.describe(listenerId(l)) },
         services.get(id)?.find((s) => s.port === l.port)?.scriptName ?? null,
         sharing.https.available,
+        kinds.get(l) !== "other",
       ),
     );
   }

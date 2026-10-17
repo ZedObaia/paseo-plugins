@@ -23,29 +23,36 @@ type PsRow = { Names: string; Image: string; Ports: string; Service: string; Wor
  * "0.0.0.0:5434->5432/tcp, [::]:5434->5432/tcp, 127.0.0.1:8000-8001->8000-8001/tcp, 6379/tcp".
  * Unpublished ports ("6379/tcp") have no host side and are left out.
  */
-export function parsePorts(text: string): { address: string; port: number }[] {
-  const ports: { address: string; port: number }[] = [];
+export function parsePorts(text: string): { address: string; port: number; containerPort: number }[] {
+  const ports: { address: string; port: number; containerPort: number }[] = [];
   for (const entry of text.split(", ")) {
-    const match = /^(.*):(\d+)(?:-(\d+))?->\d+(?:-\d+)?\/tcp$/.exec(entry.trim());
+    const match = /^(.*):(\d+)(?:-(\d+))?->(\d+)(?:-\d+)?\/tcp$/.exec(entry.trim());
     if (!match) continue;
     const first = Number(match[2]);
     const last = Math.min(Number(match[3] ?? first), first + 31);
-    for (let port = first; port <= last; port++) ports.push({ address: canonicalAddress(match[1]), port });
+    for (let port = first; port <= last; port++)
+      ports.push({
+        address: canonicalAddress(match[1]),
+        port,
+        containerPort: Number(match[4]) + port - first,
+      });
   }
   return ports;
 }
 
 /** A container's published ports, each at its widest bind, tied to its Compose project's directory. */
 export function containerListeners(row: PsRow): Listener[] {
-  const widest = new Map<number, string>();
-  for (const { address, port } of parsePorts(row.Ports)) {
+  const widest = new Map<number, { address: string; containerPort: number }>();
+  for (const { address, port, containerPort } of parsePorts(row.Ports)) {
     const kept = widest.get(port);
-    if (kept === undefined || reach(address) > reach(kept)) widest.set(port, address);
+    if (kept === undefined || reach(address) > reach(kept.address))
+      widest.set(port, { address, containerPort });
   }
-  return [...widest].map(([port, address]) => ({
+  return [...widest].map(([port, { address, containerPort }]) => ({
     identity: row.Names,
     port,
     address,
+    containerPort,
     name: row.Service || row.Names,
     detail: row.Image,
     pid: null,

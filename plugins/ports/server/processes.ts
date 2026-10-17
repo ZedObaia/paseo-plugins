@@ -24,6 +24,8 @@ export interface ProcessInfo {
 export interface Listener {
   /** Full command or container name, used to distinguish servers with the same display name. */
   identity?: string;
+  /** For a container: its own port this one is published from. */
+  containerPort?: number;
   port: number;
   address: string;
   name: string;

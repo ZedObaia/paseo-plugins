@@ -395,6 +395,69 @@ function PortItem({
   );
 }
 
+/** A port that isn't a web server: no links, only the address it's reachable at already. */
+function OtherPortRow({
+  theme,
+  compact,
+  port,
+  first,
+  actions,
+}: {
+  theme: PluginTheme;
+  compact: boolean;
+  port: Port;
+  first: boolean;
+  actions: Actions;
+}) {
+  const c = theme.colors;
+  const s = sizes(compact);
+  const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
+  return (
+    <View
+      style={{
+        flexDirection: compact ? "column" : "row",
+        alignItems: compact ? "stretch" : "center",
+        gap: compact ? 2 : 8,
+        paddingHorizontal: 12,
+        paddingVertical: compact ? 12 : 10,
+        borderTopWidth: first ? 0 : 1,
+        borderTopColor: c.border,
+      }}
+    >
+      <View style={{ flex: compact ? undefined : 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Icon
+          name={port.source === "docker" ? "Container" : "Server"}
+          size={s.icon}
+          color={c.foregroundMuted}
+        />
+        <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
+          <Text style={{ fontWeight: "600" }}>{port.port}</Text>
+          <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
+        </Text>
+      </View>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? s.icon + 8 : 0 }}
+      >
+        {port.reach ? (
+          <>
+            <Text style={small} numberOfLines={1} selectable>
+              {port.reach}
+            </Text>
+            <TextAction
+              theme={theme}
+              label="Copy"
+              accessibilityLabel={`Copy the address of port ${port.port}`}
+              onPress={() => actions.copy(port, "Address", port.reach!)}
+            />
+          </>
+        ) : (
+          <Text style={small}>This machine only</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 /**
  * A workspace's open ports, each with Open, Copy link and Make public. The Ports panel and the
  * header button's dropdown both show this.
@@ -405,10 +468,13 @@ export function PortList({
   hostId,
   workspaceId,
   openInApp,
+  webOnly,
 }: {
   theme: PluginTheme;
   /** Phones and narrow windows: touch-sized controls. */
   compact: boolean;
+  /** Leaves out the ports that aren't web servers, as the header button's list does. */
+  webOnly?: boolean;
   hostId: string;
   workspaceId: string;
   /** Paseo's own browser, where the app has one. */
@@ -422,7 +488,9 @@ export function PortList({
   const pending = useRef(new Set<string>());
   const [publishing, setPublishing] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, string>>({});
-  const ports = scan.data?.workspaces[workspaceId] ?? [];
+  const all = scan.data?.workspaces[workspaceId] ?? [];
+  const ports = all.filter((port) => port.web);
+  const others = webOnly ? [] : all.filter((port) => !port.web);
 
   const perform = async (port: Port, work: (update: (text: string) => void) => Promise<void>) => {
     if (pending.current.has(port.id)) return;
@@ -478,6 +546,13 @@ export function PortList({
   };
 
   const muted = { color: c.foregroundMuted, fontSize: 13 };
+  const card = {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: c.border,
+    backgroundColor: c.surface1,
+    overflow: "hidden" as const,
+  };
   if (scan.isPending) return <Text style={muted}>Looking for ports…</Text>;
   if (scan.error && !scan.data)
     return <Text style={{ color: c.statusDanger, fontSize: 13 }}>{errorMessage(scan.error)}</Text>;
@@ -491,21 +566,15 @@ export function PortList({
       {scan.data?.error ? (
         <Text style={{ color: c.statusWarning, fontSize: 13 }}>{scan.data.error}</Text>
       ) : null}
-      {!ports.length ? (
+      {!all.length ? (
         <Text style={muted}>
           Nothing in this workspace is listening yet. Dev servers, Docker Compose services and anything else
           started here show up once they open a port.
         </Text>
+      ) : !ports.length ? (
+        <Text style={muted}>No web servers in this workspace.</Text>
       ) : (
-        <View
-          style={{
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: c.border,
-            backgroundColor: c.surface1,
-            overflow: "hidden",
-          }}
-        >
+        <View style={card}>
           {ports.map((port, i) => (
             <PortItem
               key={port.id}
@@ -524,6 +593,25 @@ export function PortList({
           ))}
         </View>
       )}
+      {others.length ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 16 }}>
+            Other ports, like databases and caches, aren't web servers, so they get no links.
+          </Text>
+          <View style={card}>
+            {others.map((port, i) => (
+              <OtherPortRow
+                key={port.id}
+                theme={theme}
+                compact={compact}
+                port={port}
+                first={i === 0}
+                actions={actions}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

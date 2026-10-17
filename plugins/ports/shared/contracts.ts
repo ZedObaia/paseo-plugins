@@ -19,6 +19,10 @@ const port = z.object({
   source: z.enum(["process", "docker"]),
   /** The Paseo service script that was given this port, if any. */
   service: z.string().nullable(),
+  /** A web server: it gets links. Databases, caches and other services are only listed. */
+  web: z.boolean(),
+  /** host:port it can be reached at as it is, without a forward; null when only this machine can. */
+  reach: z.string().nullable(),
   /** Where your own devices open it. */
   url: z.string(),
   /** Opening it sets up its link first (see linkRpc); `url` is the link until then. */
