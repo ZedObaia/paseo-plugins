@@ -1,6 +1,7 @@
 Ports shows what each workspace is serving and lets you share it. A workspace with a listening
-port gets a button in its header listing its ports, and the **Ports** panel in the Explorer (or
-Command Center, "Show open ports") lists them with the process or container behind each one.
+port gets a button in its header listing its ports, and the **Ports** panel (Command Center,
+"Show open ports") lists them with the process or container behind each one. It opens in the
+Explorer on desktop and as a workspace tab on phones.
 Press a port to open it: in Paseo's browser on the desktop app, and in your browser on the web and
 on phones. Each port's **Share** button makes it reachable at HTTPS on your own devices, or by
 anyone with the link.
