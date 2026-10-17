@@ -3,7 +3,7 @@
   "name": "Projects everywhere",
   "description": "See which projects each Paseo host has and add a project to several hosts at once, cloning it where it's missing.",
   "icon": "assets/icon.png",
-  "media": ["assets/projects.png", "assets/add-form.png", "assets/phone.png"],
+  "media": ["assets/hero.png", "assets/add.png", "assets/prompt.png", "assets/phone.png"],
   "requirements": {
     "paseo": ">=0.11.4"
   }

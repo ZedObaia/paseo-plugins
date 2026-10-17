@@ -3,7 +3,7 @@
   "name": "Devices",
   "description": "iOS simulators and Android emulators per workspace, with a live view and tools for agents.",
   "icon": "assets/icon.png",
-  "media": ["assets/live-view.png", "assets/devices-screen.png", "assets/phone.png"],
+  "media": ["assets/hero.png", "assets/app.png", "assets/devices.png", "assets/phone.png"],
   "requirements": {
     "paseo": ">=0.11.4"
   },
