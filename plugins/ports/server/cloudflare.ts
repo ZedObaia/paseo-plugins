@@ -1,17 +1,29 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { SharingOption } from "../shared/contracts";
-import { findExecutable, isExecutable } from "./executables";
+import { assetFor, cloudflaredPath, CLOUDFLARED_VERSION } from "./cloudflared";
 
-export const cloudflared = () => findExecutable("cloudflared");
-
-export function cloudflareOption(platform: NodeJS.Platform, binary = cloudflared()): SharingOption {
-  if (isExecutable(binary)) return { available: true, reason: null };
+/**
+ * Cloudflare quick tunnels work when cloudflared is on the host, or once the plugin has downloaded
+ * it; otherwise the form offers the download (see cloudflared.ts) where the plugin has one.
+ */
+export function cloudflareOption(
+  platform: NodeJS.Platform,
+  arch: string,
+  found: string | null = cloudflaredPath(),
+): SharingOption {
+  if (found) return { available: true, reason: null, download: null };
+  const asset = assetFor(platform, arch);
+  if (asset)
+    return {
+      available: false,
+      reason: null,
+      download: { version: CLOUDFLARED_VERSION, sizeBytes: asset.size },
+    };
   return {
     available: false,
     reason:
-      platform === "darwin"
-        ? "cloudflared isn't installed. Install it with `brew install cloudflared`."
-        : "cloudflared isn't in PATH. Install it from Cloudflare's package repository or its releases: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/",
+      "cloudflared isn't installed, and the plugin has no download of it for this system. Install it from Cloudflare: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/",
+    download: null,
   };
 }
 
@@ -33,7 +45,9 @@ export function startQuickTunnel(
   timeoutMs = 45_000,
 ): Promise<{ url: string; child: ChildProcess }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cloudflared(), ["tunnel", "--no-autoupdate", "--url", target], {
+    const binary = cloudflaredPath();
+    if (!binary) return reject(new Error("cloudflared isn't installed"));
+    const child = spawn(binary, ["tunnel", "--no-autoupdate", "--url", target], {
       stdio: ["ignore", "ignore", "pipe"],
     });
     if (child.pid) onSpawn(child.pid);

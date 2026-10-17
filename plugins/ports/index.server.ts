@@ -1,6 +1,14 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { linkRpc, linkSettings, scanRpc, sharePublicRpc, unshareRpc } from "./shared/contracts";
+import {
+  installCloudflaredRpc,
+  linkRpc,
+  linkSettings,
+  scanRpc,
+  sharePublicRpc,
+  unshareRpc,
+} from "./shared/contracts";
 import { isLoopback, urlHost } from "./server/address";
+import { installCloudflared } from "./server/cloudflared";
 import { Forwards, linkHost } from "./server/links";
 import { scan, toPort, type Scan } from "./server/scan";
 import { Shares } from "./server/shares";
@@ -65,6 +73,16 @@ export default function contribute(server: PluginServerContext) {
   server.handle(sharePublicRpc, async ({ port, provider, access }, context) => {
     const { listener } = await workspacePort(context, port);
     return changed(await shares.sharePublic(listener, provider, access));
+  });
+  server.handle(installCloudflaredRpc, async () => {
+    // a slow connection takes longer than a request may: the app asks again until it's done
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = await Promise.race([
+      installCloudflared().then(() => true),
+      new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), 40_000))),
+    ]);
+    clearTimeout(timer);
+    return changed({ done });
   });
   server.handle(unshareRpc, async ({ port }) => changed((await shares.unshare(port, "public"), {})));
 

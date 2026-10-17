@@ -4,7 +4,7 @@ import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import type { Access, Port, Provider, Sharing } from "../shared/contracts";
+import type { Access, Port, Provider, Sharing, SharingOption } from "../shared/contracts";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
 import { Button, Checkbox, IconButton } from "./ui";
 
@@ -13,16 +13,26 @@ interface Actions {
   open(port: Port, inApp: boolean, url?: string): void;
   /** Copies the port's own link, or `text`. */
   copy(port: Port, what: string, text?: string): void;
-  publish(port: Port, provider: Provider, access: Access): void;
+  /** `download`: the user agreed to download cloudflared first. */
+  publish(port: Port, provider: Provider, access: Access, download: boolean): void;
   stop(port: Port): void;
 }
 
-/** Making a port public: who can open it, with or without a password, and through what. */
+/** Works now, or once the plugin downloads what it needs. */
+const usable = (option: SharingOption) => option.available || !!option.download;
+const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+
+/**
+ * Making a port public: who will be able to open it, whether it asks for a password, and its
+ * address. The address is a random Cloudflare one, which has no limit on how many there are, or
+ * where the tailnet allows Funnel, this machine's stable Tailscale name instead.
+ */
 function PublishForm({
   theme,
   port,
   sharing,
   busy,
+  progress,
   cancel,
   publish,
 }: {
@@ -30,16 +40,19 @@ function PublishForm({
   port: Port;
   sharing: Sharing;
   busy: boolean;
+  /** What's happening while it's being made public. */
+  progress: string | null;
   cancel(): void;
-  publish(provider: Provider, access: Access): void;
+  publish(provider: Provider, access: Access, download: boolean): void;
 }) {
   const c = theme.colors;
   const [provider, setProvider] = useState<Provider>(
-    sharing.funnel.available || !sharing.cloudflare.available ? "funnel" : "cloudflare",
+    usable(sharing.cloudflare) || !sharing.funnel.available ? "cloudflare" : "funnel",
   );
   const [password, setPassword] = useState(true);
-  const both = sharing.funnel.available && sharing.cloudflare.available;
   const option = sharing[provider];
+  const other: Provider = provider === "cloudflare" ? "funnel" : "cloudflare";
+  const download = !option.available ? option.download : null;
   const muted = { color: c.foregroundMuted, fontSize: 12, lineHeight: 17 };
   return (
     <View
@@ -54,47 +67,51 @@ function PublishForm({
     >
       <Text style={{ color: c.foreground, fontSize: 13, lineHeight: 19 }}>
         Anyone on the internet who has the link{password ? " and the password" : ""} will be able to open{" "}
-        {portName(port)} on port {port.port}, until you stop it or the server stops.
+        {portName(port)}, until you stop it or the server stops.
       </Text>
       <Checkbox
         theme={theme}
         checked={password}
         onChange={setPassword}
         label="Ask for a password"
-        detail="Turn it off for webhooks and other services that can't log in."
+        detail="Untick it for webhooks and other services that can't log in."
       />
-      {option.available ? (
+      {usable(option) ? (
         <Text style={muted}>
-          {provider === "funnel"
-            ? "Through Tailscale Funnel, at an address that stays the same. Funnel addresses are listed publicly, so scanners find them."
-            : "Through a Cloudflare tunnel, at a random address that's new each time."}
-          {both ? (
-            <Text
-              accessibilityRole="link"
-              style={{ color: c.accent }}
-              onPress={() => setProvider(provider === "funnel" ? "cloudflare" : "funnel")}
-            >
-              {provider === "funnel"
-                ? " Use a random Cloudflare address instead."
-                : " Use Tailscale Funnel instead."}
+          <Text style={{ color: c.foreground }}>Address: </Text>
+          {provider === "cloudflare"
+            ? "a random trycloudflare.com address, new each time. It can't stream Server-Sent Events."
+            : `${sharing.tailnetName ?? "this machine's tailnet name"}, the same each time. Names under ts.net are listed publicly, so scanners find them.`}
+          {usable(sharing[other]) ? (
+            <Text accessibilityRole="link" style={{ color: c.accent }} onPress={() => setProvider(other)}>
+              {provider === "cloudflare"
+                ? " Use a stable Tailscale address instead"
+                : " Use a random Cloudflare address instead"}
             </Text>
           ) : null}
         </Text>
       ) : (
         <Text style={{ ...muted, color: c.statusDanger }}>
-          Neither way to make it public works on this host. Tailscale Funnel: {sharing.funnel.reason}{" "}
-          Cloudflare: {sharing.cloudflare.reason}
+          There's no way to make it public on this host. Cloudflare: {sharing.cloudflare.reason} Tailscale
+          Funnel: {sharing.funnel.reason}
         </Text>
       )}
+      {download ? (
+        <Text style={muted}>
+          Cloudflare links need cloudflared, Cloudflare's tunnel program. The plugin downloads version{" "}
+          {download.version} ({megabytes(download.sizeBytes)}) from Cloudflare's releases on GitHub, checks it
+          against Cloudflare's checksums and keeps it in Paseo's folder.
+        </Text>
+      ) : null}
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <Button theme={theme} label="Cancel" disabled={busy} onPress={cancel} />
         <Button
           theme={theme}
           icon="Globe"
-          label={busy ? "Making it public…" : "Make public"}
+          label={progress ?? (download ? "Download cloudflared and make public" : "Make public")}
           primary
-          disabled={busy || !option.available}
-          onPress={() => publish(provider, password ? "password" : "open")}
+          disabled={busy || !usable(option)}
+          onPress={() => publish(provider, password ? "password" : "open", !!download)}
         />
       </View>
     </View>
@@ -187,6 +204,7 @@ function PortItem({
   inApp,
   publishing,
   setPublishing,
+  progress,
   actions,
 }: {
   theme: PluginTheme;
@@ -198,6 +216,7 @@ function PortItem({
   inApp: boolean;
   publishing: boolean;
   setPublishing(publishing: boolean): void;
+  progress: string | null;
   actions: Actions;
 }) {
   const c = theme.colors;
@@ -264,8 +283,9 @@ function PortItem({
           port={port}
           sharing={sharing}
           busy={busy}
+          progress={progress}
           cancel={() => setPublishing(false)}
-          publish={(provider, access) => actions.publish(port, provider, access)}
+          publish={(provider, access, download) => actions.publish(port, provider, access, download)}
         />
       ) : null}
       {port.public ? (
@@ -298,6 +318,7 @@ export function PortList({
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<number | null>(null);
   const [publishing, setPublishing] = useState<number | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const ports = scan.data?.workspaces[workspaceId] ?? [];
 
   const perform = async (port: Port, work: () => Promise<void>) => {
@@ -308,6 +329,7 @@ export function PortList({
       toast.error(errorMessage(error));
     } finally {
       setBusy(null);
+      setProgress(null);
       // setting up a link or a public address changes the port
       void queryClient.invalidateQueries({ queryKey: queryKey(hostId) });
     }
@@ -324,8 +346,17 @@ export function PortList({
         await copyText(text ?? (await portUrl(port, rpcs.link)));
         toast.show(`${what} copied`, { variant: "success" });
       }),
-    publish: (port, provider, access) =>
+    publish: (port, provider, access, download) =>
       void perform(port, async () => {
+        if (download) {
+          setProgress("Downloading cloudflared…");
+          // each call waits up to 40 s for the download to finish
+          let done = false;
+          for (let attempt = 0; attempt < 15 && !done; attempt++)
+            done = (await rpcs.installCloudflared({})).done;
+          if (!done) throw new Error("Downloading cloudflared is taking too long; try again later");
+        }
+        setProgress("Making it public…");
         const { url } = await rpcs.sharePublic({ port: port.port, provider, access });
         setPublishing(null);
         toast.show(`Port ${port.port} is public at ${hostOf(url)}`, { variant: "success" });
@@ -371,6 +402,7 @@ export function PortList({
               inApp={!!openInApp}
               publishing={publishing === port.port}
               setPublishing={(on) => setPublishing(on ? port.port : null)}
+              progress={busy === port.port ? progress : null}
               actions={actions}
             />
           ))}

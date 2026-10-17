@@ -1,6 +1,13 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { linkRpc, scanRpc, sharePublicRpc, unshareRpc, type Port } from "../shared/contracts";
+import {
+  installCloudflaredRpc,
+  linkRpc,
+  scanRpc,
+  sharePublicRpc,
+  unshareRpc,
+  type Port,
+} from "../shared/contracts";
 
 // The app shares one query cache between its plugins and hosts: keys start with the host.
 export const queryKey = (hostId: string) => [hostId, "ports", "scan"];
@@ -22,7 +29,12 @@ export async function portUrl(
 }
 
 export function usePortRpcs() {
-  return { link: useRpc(linkRpc), sharePublic: useRpc(sharePublicRpc), unshare: useRpc(unshareRpc) };
+  return {
+    link: useRpc(linkRpc),
+    sharePublic: useRpc(sharePublicRpc),
+    unshare: useRpc(unshareRpc),
+    installCloudflared: useRpc(installCloudflaredRpc),
+  };
 }
 
 /** The Paseo service script's name, else the process or container name. */

@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { createServer, request } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { test } from "node:test";
-import { parseTunnelUrl } from "./cloudflare";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cloudflareOption, parseTunnelUrl } from "./cloudflare";
+import { assetFor, verifiedProgram, type CloudflaredAsset } from "./cloudflared";
 import { authorized, newPassword, rewriteLocation, startProxy, upstreamHeaders, upstreamOf } from "./proxy";
 import { leftoverPlan, type ShareRecord } from "./records";
 import {
@@ -122,8 +128,8 @@ test("tailscaleOptions says what's missing", () => {
     problem: null,
   };
   assert.deepEqual(tailscaleOptions(ready, "zeyad"), {
-    https: { available: true, reason: null },
-    funnel: { available: true, reason: null },
+    https: { available: true, reason: null, download: null },
+    funnel: { available: true, reason: null, download: null },
   });
   const notInstalled = tailscaleOptions(
     { status: null, config: new Map(), operator: false, problem: "Tailscale isn't installed on this host." },
@@ -324,5 +330,73 @@ test("the proxy gets past a dev server's Host check, asks for the password, and 
   } finally {
     proxy.close();
     dev.close();
+  }
+});
+
+test("cloudflareOption uses cloudflared when found and offers the download where there is one", () => {
+  assert.deepEqual(cloudflareOption("linux", "x64", "/usr/local/bin/cloudflared"), {
+    available: true,
+    reason: null,
+    download: null,
+  });
+  assert.deepEqual(cloudflareOption("linux", "x64", null), {
+    available: false,
+    reason: null,
+    download: { version: "2026.10.1", sizeBytes: 40_227_032 },
+  });
+  assert.equal(cloudflareOption("darwin", "arm64", null).download?.sizeBytes, 19_807_806);
+  const none = cloudflareOption("freebsd", "x64", null);
+  assert.equal(none.download, null);
+  assert.match(none.reason!, /no download of it for this system/);
+  assert.equal(assetFor("linux", "ia32"), null);
+});
+
+test("verifiedProgram only accepts the release file and the program Cloudflare published", async () => {
+  const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+  const work = mkdtempSync(join(tmpdir(), "ports-cloudflared-"));
+  try {
+    const program = Buffer.from("#!/bin/sh\necho cloudflared\n");
+    const plain: CloudflaredAsset = {
+      name: "cloudflared-linux-amd64",
+      size: program.length,
+      sha256: sha(program),
+      binarySha256: sha(program),
+      archive: false,
+    };
+    assert.deepEqual(await verifiedProgram(program, plain, work), program);
+    await assert.rejects(
+      verifiedProgram(Buffer.concat([program, Buffer.from("x")]), plain, work),
+      /doesn't match/,
+    );
+    await assert.rejects(
+      verifiedProgram(program, { ...plain, sha256: "0".repeat(64) }, work),
+      /doesn't match/,
+    );
+
+    // macOS: the release file is a .tgz holding the program
+    const source = join(work, "src");
+    execFileSync("mkdir", [source]);
+    writeFileSync(join(source, "cloudflared"), program);
+    execFileSync("tar", ["-czf", join(work, "release.tgz"), "-C", source, "cloudflared"]);
+    const archive = readFileSync(join(work, "release.tgz"));
+    const packed: CloudflaredAsset = {
+      name: "cloudflared-darwin-arm64.tgz",
+      size: archive.length,
+      sha256: sha(archive),
+      binarySha256: sha(program),
+      archive: true,
+    };
+    const unpacked = mkdtempSync(join(work, "unpack-"));
+    assert.deepEqual(await verifiedProgram(archive, packed, unpacked), program);
+    await assert.rejects(
+      verifiedProgram(
+        archive,
+        { ...packed, binarySha256: "0".repeat(64) },
+        mkdtempSync(join(work, "unpack-")),
+      ),
+      /published checksum/,
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
   }
 });

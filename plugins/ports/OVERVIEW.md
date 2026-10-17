@@ -50,20 +50,35 @@ press **Make public**. The port then shows a **Public** box with the address and
 buttons to open, copy and stop it.
 
 - **Password.** Public links ask for one by default: the browser asks once, and any user name
-  works with the 12 random characters the plugin generates for that link. Turn it off for webhooks
+  works with the 12 random characters the plugin generates for that link. Untick it for webhooks
   and other services that can't log in.
-- **Tailscale Funnel**, used when the tailnet allows it. The plugin runs
+- **A random Cloudflare address**, the default. The plugin runs
+  `cloudflared tunnel --url http://127.0.0.1:<proxy>`, a Cloudflare quick tunnel, and gives you the
+  random `https://….trycloudflare.com` address it gets, which is new every time. It needs no
+  Cloudflare account, and traffic passes through Cloudflare's network. Cloudflare offers quick
+  tunnels for testing and development: they have no uptime guarantee, take up to 200 requests at
+  a time, and don't support Server-Sent Events, so pages that stream updates that way need the
+  Tailscale address. Nothing in Tailscale changes.
+- **A stable Tailscale address**, offered when the tailnet allows Funnel. The plugin runs
   `tailscale funnel --bg --yes --https=<port> http://127.0.0.1:<proxy>`, which adds an entry to the
   machine's serve settings and turns Funnel on for it, publishing it at
   `https://<machine>.<tailnet>.ts.net:<port>`. Funnel only allows ports 443, 8443 and 10000, and
   turning it on for a port that already serves something would publish that too, so the plugin
   only picks one nothing serves: at most three public Funnel links per machine, fewer when some of
-  those ports are taken. The address stays the same, and names under `ts.net` are published in
-  certificate transparency logs, where scanners find them.
-- **Cloudflare quick tunnel**, used when Funnel isn't available, or when you choose a random
-  address instead. The plugin runs `cloudflared tunnel --url http://127.0.0.1:<proxy>` and gives you
-  the random `https://….trycloudflare.com` address it gets, which is new every time. It needs no
-  Cloudflare account; traffic passes through Cloudflare's network. Nothing in Tailscale changes.
+  those ports are taken. Names under `ts.net` are published in certificate transparency logs,
+  where scanners find them.
+
+### cloudflared
+
+The plugin uses the `cloudflared` in the daemon's PATH, or in Homebrew's or `/usr/local/bin`, when
+there is one. Otherwise the form offers to download it, and the button says so: **Download
+cloudflared and make public**. Only that button downloads anything. The plugin then fetches
+cloudflared 2026.10.1, Cloudflare's own build, from its releases on GitHub
+(`github.com/cloudflare/cloudflared`): about 40 MB on Linux and 20 MB on macOS, for x64 and arm64.
+It checks the file's size and SHA-256 against values built into the plugin, and the program's
+SHA-256 against the checksum Cloudflare publishes for that release, and installs nothing if
+either differs. It keeps the program in `plugin-data/ports/bin` under Paseo's home directory;
+delete that folder to remove it.
 
 ## When links end
 
@@ -85,8 +100,8 @@ serve or Funnel setting.
   for the tailnet (admin console, DNS). On Linux the daemon's user must be root or Tailscale's
   operator: `sudo tailscale set --operator=$USER` once. Funnel also needs the `funnel` node
   attribute in the tailnet policy. The **Make public…** form says what's missing.
-- Cloudflare quick tunnels need `cloudflared` in the daemon's PATH. The plugin doesn't install
-  it: on macOS run `brew install cloudflared`, on Linux use Cloudflare's packages.
+- The plugin can download cloudflared for Linux and macOS on x64 and arm64. Elsewhere, install
+  it from Cloudflare for Cloudflare links.
 - Without Tailscale HTTPS, links are `http://`. A server that only speaks HTTPS, or isn't a web
   server at all (a database), is still listed.
 - The header button's list opens ports in your browser; open them from the panel to use Paseo's

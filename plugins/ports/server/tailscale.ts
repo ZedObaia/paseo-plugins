@@ -132,8 +132,8 @@ export interface TailscaleState {
   problem: string | null;
 }
 
-const unavailable = (reason: string): SharingOption => ({ available: false, reason });
-const available: SharingOption = { available: true, reason: null };
+const unavailable = (reason: string): SharingOption => ({ available: false, reason, download: null });
+const available: SharingOption = { available: true, reason: null, download: null };
 
 /** What a private HTTPS share and a Funnel share need, and what's missing for each. */
 export function tailscaleOptions(

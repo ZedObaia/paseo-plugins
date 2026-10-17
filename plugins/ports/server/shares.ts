@@ -180,7 +180,7 @@ export class Shares {
       tailnetName: state.status?.dnsName ?? null,
       https,
       funnel,
-      cloudflare: cloudflareOption(process.platform),
+      cloudflare: cloudflareOption(process.platform, process.arch),
     };
   }
 
@@ -293,7 +293,7 @@ export class Shares {
     access: Access,
     password: string | null,
   ): Promise<PublicShare> {
-    const option = cloudflareOption(process.platform);
+    const option = cloudflareOption(process.platform, process.arch);
     if (!option.available) throw new Error(option.reason ?? "cloudflared isn't available");
     let record: ShareRecord | undefined;
     let started: Awaited<ReturnType<typeof startQuickTunnel>>;

@@ -33,6 +33,8 @@ const option = z.object({
   available: z.boolean(),
   /** What's missing when it isn't available. */
   reason: z.string().nullable(),
+  /** What the plugin can download to make it available, once the user agrees to. */
+  download: z.object({ version: z.string(), sizeBytes: z.number() }).nullable(),
 });
 export type SharingOption = z.infer<typeof option>;
 
@@ -74,6 +76,16 @@ export const sharePublicRpc = defineRpc({
   name: "ports.share.public",
   input: z.object({ port: z.number().int(), provider, access }),
   output: z.object({ url: z.string(), password: z.string().nullable() }),
+});
+
+/**
+ * Downloads cloudflared, which only happens when the user asks for it. Answers within 40 s;
+ * `done` is false while the download is still running, so call it again.
+ */
+export const installCloudflaredRpc = defineRpc({
+  name: "ports.cloudflared.install",
+  input: z.object({}),
+  output: z.object({ done: z.boolean() }),
 });
 
 /** Stops a port's public link. */
