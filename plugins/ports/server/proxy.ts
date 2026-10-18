@@ -1,5 +1,5 @@
-import { createHash, randomInt, timingSafeEqual } from "node:crypto";
-import { createServer, request, type IncomingMessage } from "node:http";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createServer, request, type IncomingMessage, type ServerResponse } from "node:http";
 import { connect, type Socket } from "node:net";
 import { isLoopback, isWildcard, urlHost } from "./address";
 
@@ -27,13 +27,18 @@ const HOP_BY_HOP = new Set([
 /**
  * The request headers to send upstream, as raw name/value pairs. Host becomes one the server
  * accepts, and Origin follows it when the page made the request to itself, so same-origin checks
- * still pass. The address the browser used goes in X-Forwarded-Host. The share's own password is
- * dropped: it isn't the app's. An upgrade keeps its Connection and Upgrade headers.
+ * still pass. The address the browser used goes in X-Forwarded-Host. The share's own password, and
+ * the cookie a browser got for entering it, are dropped: they aren't the app's. An upgrade keeps
+ * its Connection and Upgrade headers.
  */
 export function upstreamHeaders(
   raw: readonly string[],
   upstreamHost: string,
-  { upgrade, stripAuthorization }: { upgrade: boolean; stripAuthorization: boolean },
+  {
+    upgrade,
+    stripAuthorization,
+    stripCookie,
+  }: { upgrade: boolean; stripAuthorization: boolean; stripCookie?: string },
 ): string[] {
   const out: string[] = [];
   let publicHost: string | null = null;
@@ -49,6 +54,14 @@ export function upstreamHeaders(
     const key = name.toLowerCase();
     if (key === "host") continue;
     if (key === "authorization" && stripAuthorization) continue;
+    if (key === "cookie" && stripCookie) {
+      const kept = value
+        .split(/;\s*/)
+        .filter((pair) => pair && !pair.startsWith(`${stripCookie}=`))
+        .join("; ");
+      if (kept) out.push(name, kept);
+      continue;
+    }
     if (HOP_BY_HOP.has(key) && !(upgrade && (key === "connection" || key === "upgrade"))) continue;
     if (key === "origin" && publicHost && value === `${scheme}://${publicHost}`) {
       out.push(name, `http://${upstreamHost}`);
@@ -82,6 +95,71 @@ export function authorized(header: string | undefined, password: string): boolea
   return decoded.includes(":") && timingSafeEqual(digest(given), digest(password));
 }
 
+const samePassword = (given: string, password: string) =>
+  timingSafeEqual(digest(given.trim()), digest(password));
+
+/** Whether the Cookie header holds this cookie with this value. */
+export function hasCookie(header: string | undefined, name: string, value: string): boolean {
+  const pair = (header ?? "").split(/;\s*/).find((p) => p.startsWith(`${name}=`));
+  return !!pair && timingSafeEqual(digest(pair.slice(name.length + 1)), digest(value));
+}
+
+/** Where the password page posts to; never passed on to the app. */
+export const LOGIN_PATH = "/__paseo_ports/login";
+
+/** A path on this site to go back to after the password page, never another site. */
+export const returnPath = (to: string | null | undefined) =>
+  to && /^\/(?![/\\])[^\r\n]*$/.test(to) ? to : "/";
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/**
+ * The page a browser gets for a link with a password: a field that posts it, so it works where
+ * the browser shows no Basic auth prompt, like Paseo's own browser.
+ */
+export function passwordPage(port: number, to: string, wrong: boolean): string {
+  return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Password needed · port ${port}</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111413; color: #fafafa; font: 16px/1.5 system-ui, sans-serif; }
+  form { width: min(320px, calc(100vw - 48px)); display: grid; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; }
+  p { margin: 0; color: ${wrong ? "#d8847b" : "#a1a5a4"}; }
+  input, button { font: inherit; padding: 10px 12px; border-radius: 8px; }
+  input { border: 1px solid #2f3534; background: #1e2120; color: inherit; }
+  button { border: 0; background: #20744a; color: #fff; cursor: pointer; }
+</style>
+<form method="post" action="${LOGIN_PATH}">
+  <h1>This link needs a password</h1>
+  <p>${wrong ? "That password isn't right. Try again." : "Ask whoever shared it with you."}</p>
+  <input type="password" name="password" aria-label="Password" autocomplete="current-password" autocapitalize="none" autofocus required>
+  <input type="hidden" name="to" value="${escapeHtml(returnPath(to))}">
+  <button>Open</button>
+</form>
+</html>
+`;
+}
+
+/** A request body as text, up to `limit` bytes; anything longer is refused. */
+function readBody(req: IncomingMessage, limit: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("too long"));
+        req.destroy();
+      } else chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 // no 0/o, 1/l/i: easy to read out and type on a phone
 const ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
 
@@ -102,7 +180,9 @@ export interface Proxy {
 /**
  * An HTTP proxy on loopback in front of a shared server: it rewrites Host so dev servers that
  * reject unknown hosts answer, passes WebSocket upgrades through (hot reload keeps working), and
- * asks for the password when the share has one.
+ * asks for the password when the share has one: a browser opening a page gets a password page,
+ * and the password gets it a cookie for the rest of the share; anything else, like a webhook or
+ * curl, gets a Basic auth challenge.
  */
 export function startProxy(
   target: { address: string; port: number },
@@ -112,10 +192,33 @@ export function startProxy(
   const upstream = upstreamOf(target.address, target.port);
   const sockets = new Set<Socket>();
   const realm = `Port ${target.port}`;
+  // one per share, so entering the password lasts as long as the share; named for the port, since
+  // a machine's Funnel links share a host name and cookies don't keep ports apart
+  const session = randomBytes(32).toString("base64url");
+  const cookie = `__Host-paseo-port-${target.port}`;
   let closed = false;
   let blocked = false;
   const allowed = (req: IncomingMessage) =>
-    password === null || authorized(req.headers.authorization, password);
+    password === null ||
+    authorized(req.headers.authorization, password) ||
+    hasCookie(req.headers.cookie, cookie, session);
+  const page = (res: ServerResponse, to: string, wrong: boolean) => {
+    res.writeHead(401, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(passwordPage(target.port, to, wrong));
+  };
+
+  async function login(req: IncomingMessage, res: ServerResponse, password: string) {
+    if (req.method !== "POST") return page(res, "/", false);
+    const form = new URLSearchParams(await readBody(req, 8_192).catch(() => ""));
+    const to = returnPath(form.get("to"));
+    if (!samePassword(form.get("password") ?? "", password)) return page(res, to, true);
+    res.writeHead(303, {
+      Location: to,
+      "Set-Cookie": `${cookie}=${session}; Path=/; Secure; HttpOnly; SameSite=Lax`,
+      "Cache-Control": "no-store",
+    });
+    res.end();
+  }
 
   const server = createServer(async (req, res) => {
     if (blocked) {
@@ -123,7 +226,12 @@ export function startProxy(
       res.end("This link has stopped.\n");
       return;
     }
+    if (password !== null && new URL(req.url ?? "/", "http://x").pathname === LOGIN_PATH)
+      return void (await login(req, res, password));
     if (!allowed(req)) {
+      // a page a browser opens; Paseo's own browser shows no Basic auth prompt
+      if ((req.method === "GET" || req.method === "HEAD") && /text\/html/.test(req.headers.accept ?? ""))
+        return page(res, req.url ?? "/", false);
       res.writeHead(401, {
         "WWW-Authenticate": `Basic realm="${realm}", charset="UTF-8"`,
         "Content-Type": "text/plain; charset=utf-8",
@@ -146,6 +254,7 @@ export function startProxy(
         headers: upstreamHeaders(req.rawHeaders, upstream.host, {
           upgrade: false,
           stripAuthorization: password !== null,
+          stripCookie: password === null ? undefined : cookie,
         }),
       },
       (incoming) => {
@@ -194,6 +303,7 @@ export function startProxy(
     const headers = upstreamHeaders(req.rawHeaders, upstream.host, {
       upgrade: true,
       stripAuthorization: password !== null,
+      stripCookie: password === null ? undefined : cookie,
     });
     const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
     for (let i = 0; i < headers.length; i += 2) lines.push(`${headers[i]}: ${headers[i + 1]}`);

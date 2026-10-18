@@ -9,7 +9,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cloudflareOption, parseTunnelUrl } from "./cloudflare";
 import { assetFor, verifiedProgram, type CloudflaredAsset } from "./cloudflared";
-import { authorized, newPassword, rewriteLocation, startProxy, upstreamHeaders, upstreamOf } from "./proxy";
+import {
+  authorized,
+  LOGIN_PATH,
+  newPassword,
+  returnPath,
+  rewriteLocation,
+  startProxy,
+  upstreamHeaders,
+  upstreamOf,
+} from "./proxy";
 import { leftoverPlan, type ShareRecord } from "./records";
 import {
   canOperate,
@@ -331,6 +340,94 @@ test("the proxy gets past a dev server's Host check, asks for the password, and 
     proxy.close();
     dev.close();
   }
+});
+
+test("a browser gets a password page, and the password lets it in with a cookie the app never sees", async () => {
+  const dev = createServer((req, res) => {
+    res.writeHead(200, { "X-Seen-Cookie": req.headers.cookie ?? "" }).end("the app");
+  });
+  dev.on("upgrade", (req, socket) => {
+    socket.end(`HTTP/1.1 101 Switching Protocols\r\nX-Seen-Cookie: ${req.headers.cookie ?? ""}\r\n\r\n`);
+  });
+  await new Promise<void>((resolve) => dev.listen(0, "127.0.0.1", resolve));
+  const target = { address: "127.0.0.1", port: (dev.address() as AddressInfo).port };
+  const proxy = await startProxy(target, "abcd-efgh-jkmn");
+  const html = { Accept: "text/html,application/xhtml+xml" };
+  const post = (fields: Record<string, string>) =>
+    fetch(`${proxy.url}${LOGIN_PATH}`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(fields).toString(),
+    });
+  try {
+    // a page a browser opens: a form, and no Basic prompt on top of it
+    const form = await fetch(`${proxy.url}/dashboard?tab=2`, { headers: html });
+    assert.equal(form.status, 401);
+    assert.equal(form.headers.get("www-authenticate"), null);
+    const text = await form.text();
+    assert.match(text, /name="password"/);
+    assert.match(text, /name="to" value="\/dashboard\?tab=2"/);
+    // anything else, like a webhook, still gets the Basic challenge
+    const api = await fetch(`${proxy.url}/api`);
+    assert.equal(api.status, 401);
+    assert.match(api.headers.get("www-authenticate") ?? "", /^Basic realm=/);
+
+    const wrong = await post({ password: "nope", to: "/dashboard" });
+    assert.equal(wrong.status, 401);
+    assert.match(await wrong.text(), /isn't right/);
+    const right = await post({ password: " abcd-efgh-jkmn ", to: "/dashboard?tab=2" });
+    assert.equal(right.status, 303);
+    assert.equal(right.headers.get("location"), "/dashboard?tab=2");
+    const setCookie = right.headers.get("set-cookie") ?? "";
+    assert.match(
+      setCookie,
+      new RegExp(`^__Host-paseo-port-${target.port}=[\\w-]+; Path=/; Secure; HttpOnly; SameSite=Lax$`),
+    );
+    // it only ever goes back to this site
+    assert.equal(
+      (await post({ password: "abcd-efgh-jkmn", to: "//evil.example/x" })).headers.get("location"),
+      "/",
+    );
+
+    const session = setCookie.split(";")[0];
+    const ok = await fetch(`${proxy.url}/dashboard`, {
+      headers: { ...html, Cookie: `theme=dark; ${session}` },
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("x-seen-cookie"), "theme=dark");
+    const forged = await fetch(`${proxy.url}/`, {
+      headers: { ...html, Cookie: `${session.split("=")[0]}=forged` },
+    });
+    assert.equal(forged.status, 401);
+
+    // hot reload's WebSocket brings the cookie along
+    const upgraded = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(new URL(proxy.url).port), "127.0.0.1", () =>
+        socket.write(
+          `GET /hmr HTTP/1.1\r\nHost: x\r\nCookie: ${session}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n`,
+        ),
+      );
+      let text = "";
+      socket.on("data", (chunk) => (text += chunk));
+      socket.on("end", () => resolve(text));
+      socket.on("error", reject);
+    });
+    assert.match(upgraded, /^HTTP\/1\.1 101/);
+    assert.match(upgraded, /X-Seen-Cookie: \r\n/);
+  } finally {
+    proxy.close();
+    dev.close();
+  }
+});
+
+test("returnPath stays on the site", () => {
+  assert.equal(returnPath("/a/b?c=1"), "/a/b?c=1");
+  assert.equal(returnPath("//evil.example"), "/");
+  assert.equal(returnPath("/\\evil.example"), "/");
+  assert.equal(returnPath("https://evil.example"), "/");
+  assert.equal(returnPath("/x\r\nSet-Cookie: a=b"), "/");
+  assert.equal(returnPath(null), "/");
 });
 
 test("cloudflareOption uses cloudflared when found and offers the download where there is one", () => {

@@ -92,9 +92,11 @@ A port only becomes public when you press **Share publicly**, read who will be a
 and press **Share publicly** again. The port then shows a **Public** box with the address, the
 password, buttons to open and copy them, and **Stop**. The form offers:
 
-- **Require a password**, ticked by default: the browser asks once, and any user name works with
-  the 12 random characters the plugin generates for that link. Untick it for webhooks and other
-  services that can't log in.
+- **Require a password**, ticked by default, with 12 random characters the plugin generates for
+  that link. A browser opening the link gets a password page; the password sets a cookie that
+  lasts until the link stops, and the app behind it never sees the cookie or the password. Other
+  clients, like `curl`, get a Basic auth challenge, where any user name works. Untick it for
+  webhooks and other services that can't log in.
 - **Random address**, the default. The plugin runs
   `cloudflared tunnel --url http://127.0.0.1:<proxy>`, a Cloudflare quick tunnel, and gives you the
   random `https://….trycloudflare.com` address it gets, which is new every time. It needs no
