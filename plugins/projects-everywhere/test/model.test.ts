@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CLONEABLE,
+  cloneCommand,
   cloneUrlOf,
   homeRelative,
   identity,
@@ -10,13 +11,16 @@ import {
   remoteKeyOf,
 } from "../client/model";
 
-test("paths in a home folder become ~ paths, on macOS and Linux", () => {
+test("paths in a home folder become ~ paths, on macOS, Linux and Windows", () => {
   assert.equal(homeRelative("/Users/zeyad/workspace/paseo-plugins"), "~/workspace/paseo-plugins");
   assert.equal(homeRelative("/home/zeyad/workspace/x"), "~/workspace/x");
   assert.equal(homeRelative("/root/x"), "~/x");
   assert.equal(homeRelative("/Users/zeyad"), "~");
   assert.equal(homeRelative("/opt/projects/x"), "/opt/projects/x");
   assert.equal(homeRelative("/Users2/x"), "/Users2/x");
+  assert.equal(homeRelative("C:\\Users\\MyWinPC\\workspace\\x"), "~/workspace/x");
+  assert.equal(homeRelative("C:\\Users\\MyWinPC"), "~");
+  assert.equal(homeRelative("D:\\code\\x"), "D:/code/x");
 });
 
 test("clone URLs from Paseo's remote project keys", () => {
@@ -102,4 +106,17 @@ test("add form input: GitHub shorthand, clone URLs and folders", () => {
   assert.equal(parseTarget("ext::sh -c touch% /tmp/x", "~/workspace"), null);
   assert.equal(parseTarget("ZedObaia/paseo-plugins", "workspace"), null);
   assert.equal(CLONEABLE.test("file:///etc"), false);
+});
+
+test("clone commands: sh with the values as arguments, PowerShell on Windows", () => {
+  const sh = cloneCommand(false, "https://github.com/a/b.git", "~/workspace/b");
+  assert.equal(sh.command, "sh");
+  assert.deepEqual(sh.args.slice(2), ["sh", "https://github.com/a/b.git", "~/workspace/b"]);
+
+  const ps = cloneCommand(true, "https://github.com/a/b.git", "~/it's \u2019quoted\u2019");
+  assert.equal(ps.command, "powershell");
+  assert.deepEqual(ps.args.slice(0, 3), ["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+  const script = Buffer.from(ps.args[3], "base64").toString("utf16le");
+  assert.match(script, /^\$dest = '~\/it''s \u2019\u2019quoted\u2019\u2019'$/m);
+  assert.match(script, /git clone -- 'https:\/\/github\.com\/a\/b\.git' \$dest/);
 });

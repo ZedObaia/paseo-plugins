@@ -22,9 +22,16 @@ export interface ProjectRow extends Target {
   on: Map<string, HostProject>;
 }
 
-/** "~/workspace/x" for a path in a home folder: macOS /Users/<user>, Linux /home/<user> or /root. */
-export const homeRelative = (path: string) =>
-  path.replace(/^(\/Users\/[^/]+|\/home\/[^/]+|\/root)(?=\/|$)/, "~");
+export const isWindowsPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path);
+
+/**
+ * "~/workspace/x" for a path in a home folder: macOS /Users/<user>, Linux /home/<user> or /root,
+ * Windows C:\Users\<user>. Windows paths come back with forward slashes.
+ */
+export function homeRelative(path: string): string {
+  const p = isWindowsPath(path) ? path.replace(/\\/g, "/") : path;
+  return p.replace(/^(\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)(?=\/|$)/, "~");
+}
 
 /**
  * The same project on every host: the same remote, or for a folder without one, the same place in
@@ -90,4 +97,57 @@ export function parseTarget(input: string, parent: string): Target | null {
       : null;
   }
   return FOLDER.test(text) ? { path: text.replace(/(.)\/+$/, "$1"), cloneUrl: null } : null;
+}
+
+export const CLONE_EXIT = /__PROJECTS_EVERYWHERE_EXIT_(\d+)__/;
+
+// Runs as `sh -c SCRIPT sh <url> <folder>`, so neither value is parsed by a shell. Prompts are off,
+// so a missing credential fails rather than waiting for input; only https and ssh transports are
+// allowed. The terminal stays open once git exits until the plugin has read the result: Paseo
+// drops a terminal's output when its command ends.
+const SH_SCRIPT = [
+  'dest=$2; case $dest in "~/"*) dest=$HOME/${dest#"~/"};; esac',
+  'mkdir -p "$(dirname "$dest")" &&',
+  '  GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL=https:ssh GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -- "$1" "$dest"',
+  'printf "\\n__PROJECTS_EVERYWHERE_EXIT_%s__\\n" "$?"',
+  "exec sleep 600",
+].join("\n");
+
+// PowerShell has no way to pass arguments to an -EncodedCommand script, so the values go in as
+// single-quoted literals, where only quote characters (including the curly ones) need doubling.
+const psLiteral = (value: string) => `'${value.replace(/['‘-‛]/g, "$&$&")}'`;
+
+// The same steps for Windows, which has no sh. git creates the missing parent folders itself;
+// GCM_INTERACTIVE stops Git Credential Manager from opening a sign-in window.
+const psScript = (url: string, path: string) =>
+  [
+    `$dest = ${psLiteral(path)}`,
+    "if ($dest.StartsWith('~/')) { $dest = Join-Path $HOME $dest.Substring(2) }",
+    "$env:GIT_TERMINAL_PROMPT = '0'; $env:GCM_INTERACTIVE = 'never'",
+    "$env:GIT_ALLOW_PROTOCOL = 'https:ssh'; $env:GIT_SSH_COMMAND = 'ssh -o BatchMode=yes'",
+    `try { git clone -- ${psLiteral(url)} $dest; $code = $LASTEXITCODE } catch { "$_"; $code = 127 }`,
+    '"`n__PROJECTS_EVERYWHERE_EXIT_${code}__"',
+    "Start-Sleep 600",
+  ].join("\n");
+
+declare function btoa(data: string): string;
+
+/** PowerShell's -EncodedCommand form of a script: base64 of its UTF-16LE text. */
+function encodeCommand(script: string): string {
+  let bytes = "";
+  for (let i = 0; i < script.length; i++) {
+    const unit = script.charCodeAt(i);
+    bytes += String.fromCharCode(unit & 0xff, unit >> 8);
+  }
+  return btoa(bytes);
+}
+
+/** The terminal command that clones `url` into `path` and then prints git's exit code. */
+export function cloneCommand(windows: boolean, url: string, path: string) {
+  return windows
+    ? {
+        command: "powershell",
+        args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeCommand(psScript(url, path))],
+      }
+    : { command: "sh", args: ["-c", SH_SCRIPT, "sh", url, path] };
 }

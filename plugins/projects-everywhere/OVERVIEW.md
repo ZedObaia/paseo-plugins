@@ -21,7 +21,8 @@ exist there and the project has a git remote, the plugin first clones it into th
 
 - The clone runs `git clone` in a terminal on that host, because Paseo gives plugins no other way
   to run a command there. A terminal belongs to a workspace, so it opens briefly in one of that
-  host's existing projects and closes once the clone finishes.
+  host's existing projects and closes once the clone finishes. It runs through `sh` on macOS and
+  Linux and through Windows PowerShell on Windows.
 - It uses that host's own git setup and credentials. Prompts are turned off, so a missing
   credential fails with git's error instead of waiting.
 - Only https and ssh remotes are cloned.

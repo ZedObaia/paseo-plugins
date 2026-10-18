@@ -1,5 +1,5 @@
 import { getPaseoClient } from "@getpaseo/plugin/client";
-import { CLONEABLE, type HostProject, type Target } from "./model";
+import { CLONE_EXIT, CLONEABLE, cloneCommand, isWindowsPath, type HostProject, type Target } from "./model";
 
 /** An RPC error without the transport details Paseo appends. */
 export const message = (error: unknown) =>
@@ -42,34 +42,22 @@ export async function addProject(
 
 type PaseoApi = ReturnType<typeof getPaseoClient>;
 
-const EXIT = /__PROJECTS_EVERYWHERE_EXIT_(\d+)__/;
-
-// Runs as `sh -c SCRIPT sh <url> <folder>`, so neither value is parsed by a shell. Prompts are off,
-// so a missing credential fails rather than waiting for input; only https and ssh transports are
-// allowed. The terminal stays open once git exits until the plugin has read the result: Paseo
-// drops a terminal's output when its command ends.
-const SCRIPT = [
-  'dest=$2; case $dest in "~/"*) dest=$HOME/${dest#"~/"};; esac',
-  'mkdir -p "$(dirname "$dest")" &&',
-  '  GIT_TERMINAL_PROMPT=0 GIT_ALLOW_PROTOCOL=https:ssh GIT_SSH_COMMAND="ssh -o BatchMode=yes" git clone -- "$1" "$dest"',
-  'printf "\\n__PROJECTS_EVERYWHERE_EXIT_%s__\\n" "$?"',
-  "exec sleep 600",
-].join("\n");
-
 /**
  * Clones in a terminal on that host: Paseo offers plugins no other way to run a command there. A
  * terminal belongs to a workspace, so it opens in one the host already has and closes when done.
+ * Plugins can't remove a project, so a host without one isn't given a temporary one.
  */
 async function clone(paseo: PaseoApi, url: string, path: string): Promise<void> {
   if (!CLONEABLE.test(url)) throw new Error(`Only https and ssh remotes can be cloned: ${url}`);
   const workspace = (await paseo.workspaces.list()).entries[0];
   if (!workspace)
-    throw new Error("Open any project on this host first: the clone runs in one of its terminals");
+    throw new Error(
+      "No projects here yet. Add one with Paseo's Add project first: the clone runs in one of its terminals",
+    );
   const terminal = await paseo.terminals.create({
     workspaceId: workspace.id,
     name: `Cloning ${path.split("/").pop()}`,
-    command: "sh",
-    args: ["-c", SCRIPT, "sh", url, path],
+    ...cloneCommand(isWindowsPath(workspace.projectRootPath), url, path),
     size: { rows: 40, cols: 160 },
   });
   try {
@@ -77,7 +65,7 @@ async function clone(paseo: PaseoApi, url: string, path: string): Promise<void> 
     while (Date.now() < deadline) {
       await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
       const output = (await terminal.capture({ stripAnsi: true })).lines.join("\n");
-      const exit = EXIT.exec(output);
+      const exit = CLONE_EXIT.exec(output);
       if (!exit) continue;
       if (exit[1] === "0") return;
       const detail = output
