@@ -271,6 +271,35 @@ export function TextAction({
   );
 }
 
+/** An icon-only action within a line of text, like TextAction; labelled for screen readers. */
+export function IconAction({
+  theme,
+  icon,
+  label,
+  onPress,
+  disabled,
+}: {
+  theme: PluginTheme;
+  icon: string;
+  label: string;
+  onPress(): void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+      style={({ pressed }) => ({ opacity: disabled ? 0.5 : pressed ? 0.6 : 1 })}
+    >
+      <Icon name={icon} size={13} color={theme.colors.foreground} />
+    </Pressable>
+  );
+}
+
 /** A small label for who can open a port's link. */
 export function Pill({ theme, label, warning }: { theme: PluginTheme; label: string; warning?: boolean }) {
   const c = theme.colors;

@@ -1,19 +1,21 @@
 Ports shows what each workspace is serving and lets you share it. A workspace running a web server
 gets a button in its header that lists them; the **Ports** panel (Command Center, "Show open ports")
-lists every port, in the Explorer on desktop and as a workspace tab on phones. Each web server has
-**Open**, **Copy link** and **Share publicly**. Open uses Paseo's browser on the desktop app and
-your browser on the web and on phones.
+lists every port, in the Explorer on desktop and as a workspace tab on phones.
 
-On a computer, each web server also shows its address on the host itself, such as `On devbox:
-localhost:5173`, with its own Open and Copy: that's the link for a browser on the host, since dev
-servers expect localhost (a secure page, OAuth callbacks, cookies), and it needs no tailnet route or
-forward. Phones leave it out, and so does a port whose link is localhost already. A port only
-reachable on the host, like a database bound to loopback, shows the same address to copy.
+Each web server lists the ways to open it, one line each, with **Open** and **Copy** (and **Stop**
+once Ports has set it up), in its own color:
 
-Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
-devices) or **Network** (anyone who can reach the machine), and a network forward says so before
-you open or copy it. Once Ports has made a link, **Stop** beside it removes the link without
-stopping your server.
+- **On devbox** (grey; the host's name): `localhost:5173`, for a browser on the host itself. Dev
+  servers expect localhost (a secure page, OAuth callbacks, cookies), and it needs no tailnet route
+  or forward. Phones leave it out.
+- **Tailnet** (green): the link your Tailscale devices open.
+- **Network** (amber): where there's no Tailscale, the machine's network address, for anyone who
+  can reach it; a forward says so before you open or copy it.
+- **Public** (amber), after **Share publicly**: the link for anyone, with its password.
+
+Open uses Paseo's browser on the desktop app, with a button beside it for your own browser, and your
+browser on the web and on phones. **Stop** removes a link without stopping your server. A port only
+reachable on the host, like a database bound to loopback, shows its localhost address to copy.
 
 ## How ports find their workspace
 

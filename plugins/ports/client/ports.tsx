@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useSettings } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Platform, Text, View } from "react-native";
 import {
   linkSettings,
@@ -14,7 +14,7 @@ import {
 } from "../shared/contracts";
 import { localAddress, localUrl } from "../shared/local";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
-import { Button, Checkbox, faint, IconButton, Options, Pill, sizes, TextAction } from "./ui";
+import { Button, Checkbox, IconAction, Options, Pill, sizes, TextAction } from "./ui";
 
 interface Actions {
   /** Opens the port's own link, or `url` (its public one). */
@@ -155,99 +155,111 @@ function PublishForm({
   );
 }
 
-/** A public port's address and password, with what can be done with them. */
-function PublicLink({
+type LinkKind = "local" | "tailnet" | "network" | "public";
+
+/** How each way to open a port looks: grey on the host itself, green on the tailnet, amber beyond. */
+function linkStyle(theme: PluginTheme, kind: LinkKind): { icon: string; color: string } {
+  const c = theme.colors;
+  if (kind === "local") return { icon: "Monitor", color: c.foregroundMuted };
+  if (kind === "tailnet") return { icon: "Lock", color: c.statusSuccess };
+  return { icon: kind === "public" ? "Globe" : "Network", color: c.statusWarning };
+}
+
+/**
+ * One way to open a port, behind a bar in its color: who it reaches, its actions, then its
+ * address and any notes.
+ */
+function LinkRow({
   theme,
   compact,
-  port,
-  busy,
-  inApp,
+  kind,
+  label,
+  detail,
+  address,
   actions,
+  children,
 }: {
   theme: PluginTheme;
   compact: boolean;
-  port: Port;
-  busy: boolean;
-  inApp: boolean;
-  actions: Actions;
+  kind: LinkKind;
+  label: string;
+  /** Who it reaches, after the label. */
+  detail?: string;
+  address: string;
+  actions: ReactNode;
+  children?: ReactNode;
 }) {
   const c = theme.colors;
-  const pub = port.public!;
+  const s = sizes(compact);
+  const { icon, color } = linkStyle(theme, kind);
+  const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
   return (
-    <View
-      style={{
-        gap: 4,
-        paddingTop: 10,
-        paddingHorizontal: 10,
-        paddingBottom: pub.error ? 10 : 4,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: faint(c.statusWarning),
-        backgroundColor: c.surface0,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Icon name="Globe" size={sizes(compact).icon} color={c.statusWarning} />
-        <Text style={{ color: c.statusWarning, fontSize: 12, fontWeight: "600" }}>
-          {pub.error ? "Public access stopped" : "Public"}
+    <View style={{ gap: 2, paddingLeft: 10, paddingVertical: 2, borderLeftWidth: 2, borderLeftColor: color }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: compact ? 32 : 22 }}>
+        <Icon name={icon} size={13} color={color} />
+        <Text style={{ flex: 1, ...small }} numberOfLines={1}>
+          <Text style={{ color, fontWeight: "600" }}>{label}</Text>
+          {detail ? ` · ${detail}` : ""}
         </Text>
-        <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12 }}>
-          {pub.provider === "funnel" ? "· stable address" : "· random address"}
-        </Text>
-        <TextAction
-          theme={theme}
-          danger
-          label={pub.error ? "Retry cleanup" : "Stop"}
-          accessibilityLabel={pub.error ? "Retry cleanup" : `Stop the public link to port ${port.port}`}
-          disabled={busy}
-          onPress={() => actions.stop(port)}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: compact ? 13 : 12 }}>{actions}</View>
       </View>
-      {pub.error ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{pub.error}</Text> : null}
-      <Text style={{ color: c.foreground, fontSize: sizes(compact).text }} numberOfLines={2} selectable>
-        {hostOf(pub.url)}
+      <Text
+        style={{ color: c.foreground, fontSize: s.text - 1, lineHeight: 18 }}
+        numberOfLines={1}
+        selectable
+      >
+        {address}
       </Text>
-      {!pub.error ? (
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }} selectable>
-          {pub.password ? `Password ${pub.password} · any user name` : "No password"}
-        </Text>
-      ) : null}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginLeft: -8 }}>
-        {!pub.error ? (
-          <>
-            <Button
-              theme={theme}
-              compact={compact}
-              variant="ghost"
-              icon="ExternalLink"
-              label="Open"
-              disabled={busy}
-              onPress={() => actions.open(port, inApp, pub.url)}
-            />
-            <Button
-              theme={theme}
-              compact={compact}
-              variant="ghost"
-              icon="Copy"
-              label="Copy link"
-              disabled={busy}
-              onPress={() => actions.copy(port, "Public link", pub.url)}
-            />
-            {pub.password ? (
-              <Button
-                theme={theme}
-                compact={compact}
-                variant="ghost"
-                icon="KeyRound"
-                label="Copy password"
-                disabled={busy}
-                onPress={() => actions.copy(port, "Password", pub.password!)}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </View>
+      {children}
     </View>
+  );
+}
+
+/** Open, in Paseo's browser where there is one with the system's beside it, and Copy, for one link. */
+function OpenCopy({
+  theme,
+  port,
+  inApp,
+  busy,
+  actions,
+  url,
+  what,
+}: {
+  theme: PluginTheme;
+  port: Port;
+  inApp: boolean;
+  busy: boolean;
+  actions: Actions;
+  /** The link; the port's own one when left out, set up first if it needs that. */
+  url?: string;
+  what: string;
+}) {
+  return (
+    <>
+      <TextAction
+        theme={theme}
+        label="Open"
+        accessibilityLabel={`Open the ${what.toLowerCase()} to port ${port.port}`}
+        disabled={busy}
+        onPress={() => actions.open(port, inApp, url)}
+      />
+      {inApp ? (
+        <IconAction
+          theme={theme}
+          icon="ExternalLink"
+          label={`Open the ${what.toLowerCase()} to port ${port.port} in your browser`}
+          disabled={busy}
+          onPress={() => actions.open(port, false, url)}
+        />
+      ) : null}
+      <TextAction
+        theme={theme}
+        label="Copy"
+        accessibilityLabel={`Copy the ${what.toLowerCase()} to port ${port.port}`}
+        disabled={busy}
+        onPress={() => actions.copy(port, what, url)}
+      />
+    </>
   );
 }
 
@@ -287,150 +299,158 @@ function PortItem({
   const willForward = port.needsLink && !sharing.https.available;
   // for a browser on the host itself; a phone's localhost is the phone, and a localhost link needs no second one
   const local = Platform.OS === "web" && scope !== "Local" ? localUrl(port) : null;
+  const pub = port.public;
   // the lines under the first one line up with its text, after the icon
   const indent = s.icon + 8;
   const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
+  const undo = (label: string, what: string, onPress: () => void) => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <Text style={small}>{label}</Text>
+      <TextAction theme={theme} label="Undo" accessibilityLabel={what} disabled={busy} onPress={onPress} />
+    </View>
+  );
+  const stop = (label: string, level: "private" | "public", error?: string) => (
+    <TextAction
+      theme={theme}
+      danger={level === "public" && !error}
+      label={error ? "Retry cleanup" : "Stop"}
+      accessibilityLabel={error ? "Retry cleanup" : label}
+      disabled={busy}
+      onPress={() => actions.stop(port, level)}
+    />
+  );
   return (
-    <View style={{ gap: 6, padding: 12, borderTopWidth: first ? 0 : 1, borderTopColor: c.border }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon
-          name={port.source === "docker" ? "Container" : "Globe"}
-          size={s.icon}
-          color={c.foregroundMuted}
-        />
-        <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
-          <Text style={{ fontWeight: "600" }}>{port.port}</Text>
-          <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
-        </Text>
-        {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
-        {port.public ? <Pill theme={theme} label="Public" warning /> : null}
-        <Pill theme={theme} label={scope} warning={scope === "Network"} />
-      </View>
-      <View style={{ paddingLeft: indent, gap: 2 }}>
-        {port.detail ? (
-          <Text style={small} numberOfLines={1}>
-            {port.detail}
+    <View style={{ gap: 8, padding: 12, borderTopWidth: first ? 0 : 1, borderTopColor: c.border }}>
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Icon
+            name={port.source === "docker" ? "Container" : "Globe"}
+            size={s.icon}
+            color={c.foregroundMuted}
+          />
+          <Text style={{ flex: 1, color: c.foreground, fontSize: 14 }} numberOfLines={1}>
+            <Text style={{ fontWeight: "600" }}>{port.port}</Text>
+            <Text style={{ color: c.foregroundMuted }}> {portName(port)}</Text>
           </Text>
-        ) : null}
-        {port.checked ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={small}>Checked on request</Text>
-            <TextAction
-              theme={theme}
-              label="Undo"
-              accessibilityLabel={`Stop checking port ${port.port}`}
-              disabled={busy}
-              onPress={() => actions.check(port, false)}
-            />
-          </View>
-        ) : null}
-        {port.allowed ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={small}>Links allowed by you</Text>
-            <TextAction
-              theme={theme}
-              label="Undo"
-              accessibilityLabel={`Stop allowing links for port ${port.port}`}
-              disabled={busy}
-              onPress={() => actions.allow(port, false)}
-            />
-          </View>
-        ) : null}
+          {busy ? <ActivityIndicator size="small" color={c.foregroundMuted} /> : null}
+          {pub && !pub.error ? <Pill theme={theme} label="Public" warning /> : null}
+        </View>
+        <View style={{ paddingLeft: indent, gap: 2 }}>
+          {port.detail ? (
+            <Text style={small} numberOfLines={1}>
+              {port.detail}
+            </Text>
+          ) : null}
+          {port.checked
+            ? undo("Checked on request", `Stop checking port ${port.port}`, () => actions.check(port, false))
+            : null}
+          {port.allowed
+            ? undo("Links allowed by you", `Stop allowing links for port ${port.port}`, () =>
+                actions.allow(port, false),
+              )
+            : null}
+        </View>
+      </View>
+      <View style={{ paddingLeft: compact ? 0 : indent, gap: 8 }}>
         {local ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
-              On {hostLabel}: {localAddress(port)}
-            </Text>
-            <TextAction
-              theme={theme}
-              label="Open"
-              accessibilityLabel={`Open port ${port.port} at localhost on ${hostLabel}`}
-              disabled={busy}
-              onPress={() => actions.open(port, inApp, local)}
-            />
-            <TextAction
-              theme={theme}
-              label="Copy"
-              accessibilityLabel={`Copy the localhost link to port ${port.port}`}
-              disabled={busy}
-              onPress={() => actions.copy(port, "Link", local)}
-            />
-          </View>
-        ) : null}
-        {port.private ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
-              {hostOf(port.url)}
-            </Text>
-            <TextAction
-              theme={theme}
-              label={port.private.error ? "Retry cleanup" : "Stop"}
-              accessibilityLabel={
-                port.private.error
-                  ? "Retry cleanup"
-                  : port.private.https
-                    ? `Stop the tailnet link to port ${port.port}`
-                    : `Stop forwarding port ${port.port}`
-              }
-              disabled={busy}
-              onPress={() => actions.stop(port, "private")}
-            />
-          </View>
-        ) : null}
-        {willForward || forwards ? (
-          <Text style={small}>
-            {willForward ? "Opening it forwards it to " : "Forwarded to "}
-            {hostOf(port.url)}, which anyone who can reach that address can use.
-          </Text>
-        ) : null}
-        {port.private?.error ? (
-          <Text style={{ ...small, color: c.statusDanger }}>{port.private.error}</Text>
-        ) : null}
-      </View>
-      <View
-        style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, paddingLeft: indent }}
-      >
-        <Button
-          theme={theme}
-          compact={compact}
-          icon={inApp ? "AppWindow" : "ExternalLink"}
-          label="Open"
-          disabled={busy}
-          onPress={() => actions.open(port, inApp)}
-        />
-        {inApp ? (
-          <IconButton
+          <LinkRow
             theme={theme}
             compact={compact}
-            icon="ExternalLink"
-            label={`Open port ${port.port} in your browser`}
-            disabled={busy}
-            onPress={() => actions.open(port, false)}
+            kind="local"
+            label={`On ${hostLabel}`}
+            address={localAddress(port)}
+            actions={
+              <OpenCopy
+                theme={theme}
+                port={port}
+                inApp={inApp}
+                busy={busy}
+                actions={actions}
+                url={local}
+                what="Localhost link"
+              />
+            }
           />
         ) : null}
-        <Button
+        <LinkRow
           theme={theme}
           compact={compact}
-          variant="ghost"
-          icon="Copy"
-          label="Copy link"
-          disabled={busy}
-          onPress={() => actions.copy(port, "Link")}
-        />
-        {!port.public && !publishing ? (
-          <Button
+          kind={scope === "Local" ? "local" : scope === "Tailnet" ? "tailnet" : "network"}
+          label={scope === "Local" ? `On ${hostLabel}` : scope}
+          detail={
+            scope === "Tailnet" ? "your devices" : scope === "Network" ? "anyone on the network" : undefined
+          }
+          address={hostOf(port.url)}
+          actions={
+            <>
+              <OpenCopy theme={theme} port={port} inApp={inApp} busy={busy} actions={actions} what="Link" />
+              {port.private
+                ? stop(
+                    port.private.https
+                      ? `Stop the tailnet link to port ${port.port}`
+                      : `Stop forwarding port ${port.port}`,
+                    "private",
+                    port.private.error,
+                  )
+                : null}
+            </>
+          }
+        >
+          {willForward || forwards ? (
+            <Text style={small}>
+              {willForward ? "Opening it forwards the port there" : "Forwarded there"}: anyone who can reach
+              that address can use it.
+            </Text>
+          ) : null}
+          {port.private?.error ? (
+            <Text style={{ ...small, color: c.statusDanger }}>{port.private.error}</Text>
+          ) : null}
+        </LinkRow>
+        {pub ? (
+          <LinkRow
             theme={theme}
             compact={compact}
-            variant="ghost"
-            icon="Globe"
-            label="Share publicly"
-            disabled={busy}
-            onPress={() => setPublishing(true)}
-          />
-        ) : null}
-      </View>
-      {publishing && !port.public ? (
-        <View style={{ paddingLeft: compact ? 0 : indent }}>
+            kind="public"
+            label={pub.error ? "Public access stopped" : "Public"}
+            detail={pub.error || compact ? undefined : "anyone with the link"}
+            address={hostOf(pub.url)}
+            actions={
+              <>
+                {pub.error ? null : (
+                  <OpenCopy
+                    theme={theme}
+                    port={port}
+                    inApp={inApp}
+                    busy={busy}
+                    actions={actions}
+                    url={pub.url}
+                    what="Public link"
+                  />
+                )}
+                {stop(`Stop the public link to port ${port.port}`, "public", pub.error)}
+              </>
+            }
+          >
+            {pub.error ? (
+              <Text style={{ ...small, color: c.statusDanger }}>{pub.error}</Text>
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
+                  {pub.password ? `Password ${pub.password}` : "No password"}
+                </Text>
+                {pub.password ? (
+                  <TextAction
+                    theme={theme}
+                    label="Copy password"
+                    accessibilityLabel={`Copy the password for port ${port.port}`}
+                    disabled={busy}
+                    onPress={() => actions.copy(port, "Password", pub.password!)}
+                  />
+                ) : null}
+              </View>
+            )}
+          </LinkRow>
+        ) : publishing ? (
           <PublishForm
             theme={theme}
             compact={compact}
@@ -441,20 +461,20 @@ function PortItem({
             cancel={() => setPublishing(false)}
             publish={(provider, access, download) => actions.publish(port, provider, access, download)}
           />
-        </View>
-      ) : null}
-      {port.public ? (
-        <View style={{ paddingLeft: compact ? 0 : indent }}>
-          <PublicLink
-            theme={theme}
-            compact={compact}
-            port={port}
-            busy={busy}
-            inApp={inApp}
-            actions={actions}
-          />
-        </View>
-      ) : null}
+        ) : (
+          <View style={{ flexDirection: "row", marginLeft: -8 }}>
+            <Button
+              theme={theme}
+              compact={compact}
+              variant="ghost"
+              icon="Globe"
+              label="Share publicly"
+              disabled={busy}
+              onPress={() => setPublishing(true)}
+            />
+          </View>
+        )}
+      </View>
     </View>
   );
 }
