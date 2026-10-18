@@ -3,7 +3,7 @@ import { openExternalUrl, useSettings } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Text, View } from "react-native";
 import {
   linkSettings,
   type Access,
@@ -12,6 +12,7 @@ import {
   type Sharing,
   type SharingOption,
 } from "../shared/contracts";
+import { localAddress, localUrl } from "../shared/local";
 import { errorMessage, hostOf, portName, portUrl, queryKey, usePortRpcs, useScan } from "./data";
 import { Button, Checkbox, faint, IconButton, Options, Pill, sizes, TextAction } from "./ui";
 
@@ -262,6 +263,7 @@ function PortItem({
   setPublishing,
   progress,
   actions,
+  hostLabel,
 }: {
   theme: PluginTheme;
   compact: boolean;
@@ -271,6 +273,8 @@ function PortItem({
   busy: boolean;
   /** Open uses Paseo's browser, with a button beside it for the system's. */
   inApp: boolean;
+  /** The host's name, for its localhost address. */
+  hostLabel: string;
   publishing: boolean;
   setPublishing(publishing: boolean): void;
   progress: string | null;
@@ -281,6 +285,8 @@ function PortItem({
   const scope = scopeOf(port, sharing);
   const forwards = port.private && !port.private.https;
   const willForward = port.needsLink && !sharing.https.available;
+  // for a browser on the host itself; a phone's localhost is the phone, and a localhost link needs no second one
+  const local = Platform.OS === "web" && scope !== "Local" ? localUrl(port) : null;
   // the lines under the first one line up with its text, after the icon
   const indent = s.icon + 8;
   const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
@@ -327,6 +333,27 @@ function PortItem({
               accessibilityLabel={`Stop allowing links for port ${port.port}`}
               disabled={busy}
               onPress={() => actions.allow(port, false)}
+            />
+          </View>
+        ) : null}
+        {local ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ ...small, flexShrink: 1 }} numberOfLines={1} selectable>
+              On {hostLabel}: {localAddress(port)}
+            </Text>
+            <TextAction
+              theme={theme}
+              label="Open"
+              accessibilityLabel={`Open port ${port.port} at localhost on ${hostLabel}`}
+              disabled={busy}
+              onPress={() => actions.open(port, inApp, local)}
+            />
+            <TextAction
+              theme={theme}
+              label="Copy"
+              accessibilityLabel={`Copy the localhost link to port ${port.port}`}
+              disabled={busy}
+              onPress={() => actions.copy(port, "Link", local)}
             />
           </View>
         ) : null}
@@ -443,6 +470,7 @@ function OtherPortRow({
   first,
   busy,
   actions,
+  hostLabel,
 }: {
   theme: PluginTheme;
   compact: boolean;
@@ -450,11 +478,15 @@ function OtherPortRow({
   first: boolean;
   busy: boolean;
   actions: Actions;
+  /** The host's name, for its localhost address. */
+  hostLabel: string;
 }) {
   const c = theme.colors;
   const s = sizes(compact);
   const indent = s.icon + 8;
   const small = { color: c.foregroundMuted, fontSize: 12, lineHeight: 16 };
+  // reachable from other devices, or else only on the host, at localhost
+  const reach = port.reach ?? localAddress(port);
   const note = port.skipped
     ? "Not checked: a database or cache port."
     : port.protocol === "unknown"
@@ -499,21 +531,15 @@ function OtherPortRow({
         <View
           style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: compact ? indent : 0 }}
         >
-          {port.reach ? (
-            <>
-              <Text style={small} numberOfLines={1} selectable>
-                {port.reach}
-              </Text>
-              <TextAction
-                theme={theme}
-                label="Copy"
-                accessibilityLabel={`Copy the address of port ${port.port}`}
-                onPress={() => actions.copy(port, "Address", port.reach!)}
-              />
-            </>
-          ) : (
-            <Text style={small}>This machine only</Text>
-          )}
+          <Text style={small} numberOfLines={1} selectable>
+            {port.reach ? reach : `On ${hostLabel}: ${reach}`}
+          </Text>
+          <TextAction
+            theme={theme}
+            label="Copy"
+            accessibilityLabel={`Copy the address of port ${port.port}`}
+            onPress={() => actions.copy(port, "Address", reach)}
+          />
         </View>
       </View>
       {note ? (
@@ -593,6 +619,7 @@ export function PortList({
   theme,
   compact,
   hostId,
+  hostLabel,
   workspaceId,
   openInApp,
   webOnly,
@@ -603,6 +630,8 @@ export function PortList({
   /** Leaves out the ports that aren't web servers, as the header button's list does. */
   webOnly?: boolean;
   hostId: string;
+  /** The host's name, for the localhost addresses: they work on that machine only. */
+  hostLabel: string;
   workspaceId: string;
   /** Paseo's own browser, where the app has one. */
   openInApp?: (url: string) => void;
@@ -729,6 +758,7 @@ export function PortList({
               first={i === 0}
               busy={!!progress[port.id]}
               inApp={!!openInApp}
+              hostLabel={hostLabel}
               publishing={publishing === port.id}
               setPublishing={(on) => setPublishing(on ? port.id : null)}
               progress={progress[port.id] ?? null}
@@ -752,6 +782,7 @@ export function PortList({
                 first={i === 0}
                 busy={!!progress[port.id]}
                 actions={actions}
+                hostLabel={hostLabel}
               />
             ))}
           </View>

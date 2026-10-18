@@ -17,7 +17,14 @@ function dropdown(client: PluginClientContext): ComponentType<PluginButtonConten
   return function HeaderPorts({ theme, host, layout, workspaceId, close }) {
     return (
       <View style={{ gap: 12, width: layout.compact ? undefined : 400 }}>
-        <PortList theme={theme} compact={layout.compact} hostId={host.id} workspaceId={workspaceId} webOnly />
+        <PortList
+          theme={theme}
+          compact={layout.compact}
+          hostId={host.id}
+          hostLabel={host.label}
+          workspaceId={workspaceId}
+          webOnly
+        />
         <Pressable
           accessibilityRole="button"
           onPress={() => {

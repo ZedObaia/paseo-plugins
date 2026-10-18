@@ -17,6 +17,7 @@ export function PortsPanel({ theme, layout, host, workspaceId, navigation }: Plu
         theme={theme}
         compact={layout.compact}
         hostId={host.id}
+        hostLabel={host.label}
         workspaceId={workspaceId}
         openInApp={openBrowser ? (url) => openBrowser({ url, workspaceId }) : undefined}
       />

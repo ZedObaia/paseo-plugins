@@ -8,6 +8,7 @@ import { assign } from "./match";
 import { parseProcNetTcp, parseStatPpid } from "./procfs";
 import { displayName, shortCommand, toListeners, type Listener, type ProcessInfo } from "./processes";
 import { toPort, type Shared } from "./scan";
+import { localAddress, localUrl } from "../shared/local";
 
 test("canonicalAddress spells each address one way", () => {
   assert.equal(canonicalAddress("*"), "0.0.0.0");
@@ -297,4 +298,17 @@ test("a container's instance is its ID and start time, so a restart is a new one
   const [after] = containerListeners(row, "2026-10-17T09:00:00.000000000Z");
   assert.equal(before.instance, "101e409e8482@2026-10-16T21:11:23.692619469Z");
   assert.notEqual(before.instance, after.instance);
+});
+
+test("localAddress is localhost unless the server listens on one other address only", () => {
+  const at = (address: string) => localAddress({ address, port: 5173 });
+  assert.equal(at("0.0.0.0"), "localhost:5173");
+  assert.equal(at("::"), "localhost:5173");
+  assert.equal(at("127.0.0.1"), "localhost:5173");
+  assert.equal(at("::1"), "localhost:5173");
+  assert.equal(at("127.0.0.2"), "127.0.0.2:5173");
+  assert.equal(at("100.111.26.0"), "100.111.26.0:5173");
+  assert.equal(at("fd7a:115c:a1e0::1"), "[fd7a:115c:a1e0::1]:5173");
+  assert.equal(localUrl({ address: "0.0.0.0", port: 8443, protocol: "https" }), "https://localhost:8443");
+  assert.equal(localUrl({ address: "::1", port: 5173, protocol: "http" }), "http://localhost:5173");
 });

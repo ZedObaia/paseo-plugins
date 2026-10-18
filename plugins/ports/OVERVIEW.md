@@ -1,8 +1,14 @@
-Ports shows what each workspace is serving and lets you share it. A workspace running a web
-server gets a button in its header that lists them; the **Ports** panel (Command Center, "Show
-open ports") lists every port, in the Explorer on desktop and as a workspace tab on phones. Each
-web server has **Open**, **Copy link** and **Share publicly**. Open uses Paseo's browser on the
-desktop app and your browser on the web and on phones.
+Ports shows what each workspace is serving and lets you share it. A workspace running a web server
+gets a button in its header that lists them; the **Ports** panel (Command Center, "Show open ports")
+lists every port, in the Explorer on desktop and as a workspace tab on phones. Each web server has
+**Open**, **Copy link** and **Share publicly**. Open uses Paseo's browser on the desktop app and
+your browser on the web and on phones.
+
+On a computer, each web server also shows its address on the host itself, such as `On devbox:
+localhost:5173`, with its own Open and Copy: that's the link for a browser on the host, since dev
+servers expect localhost (a secure page, OAuth callbacks, cookies), and it needs no tailnet route or
+forward. Phones leave it out, and so does a port whose link is localhost already. A port only
+reachable on the host, like a database bound to loopback, shows the same address to copy.
 
 Each port says who its link reaches: **Local** (this computer), **Tailnet** (your Tailscale
 devices) or **Network** (anyone who can reach the machine), and a network forward says so before
