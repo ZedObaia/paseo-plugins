@@ -43,21 +43,33 @@ export async function addProject(
 type PaseoApi = ReturnType<typeof getPaseoClient>;
 
 /**
- * Clones in a terminal on that host: Paseo offers plugins no other way to run a command there. A
- * terminal belongs to a workspace, so it opens in one the host already has and closes when done.
- * Plugins can't remove a project, so a host without one isn't given a temporary one.
+ * A workspace to open a terminal in: one the host has open, else one opened on a project it already
+ * has (Paseo's own clone adds a project without opening it). Plugins can't remove a project, so a
+ * host without one isn't given a temporary one.
  */
-async function clone(paseo: PaseoApi, url: string, path: string): Promise<void> {
-  if (!CLONEABLE.test(url)) throw new Error(`Only https and ssh remotes can be cloned: ${url}`);
-  const workspace = (await paseo.workspaces.list()).entries[0];
-  if (!workspace)
+async function anyWorkspace(paseo: PaseoApi): Promise<{ id: string; root: string }> {
+  const open = (await paseo.workspaces.list()).entries[0];
+  if (open) return { id: open.id, root: open.projectRootPath };
+  const project = (await paseo.projects.list()).projects[0];
+  if (!project)
     throw new Error(
       "No projects here yet. Add one with Paseo's Add project first: the clone runs in one of its terminals",
     );
+  const opened = await paseo.workspaces.open(project.projectRootPath);
+  return { id: opened.id, root: project.projectRootPath };
+}
+
+/**
+ * Clones in a terminal on that host: Paseo offers plugins no other way to run a command there. A
+ * terminal belongs to a workspace, so it opens in one of the host's projects and closes when done.
+ */
+async function clone(paseo: PaseoApi, url: string, path: string): Promise<void> {
+  if (!CLONEABLE.test(url)) throw new Error(`Only https and ssh remotes can be cloned: ${url}`);
+  const workspace = await anyWorkspace(paseo);
   const terminal = await paseo.terminals.create({
     workspaceId: workspace.id,
     name: `Cloning ${path.split("/").pop()}`,
-    ...cloneCommand(isWindowsPath(workspace.projectRootPath), url, path),
+    ...cloneCommand(isWindowsPath(workspace.root), url, path),
     size: { rows: 40, cols: 160 },
   });
   try {

@@ -27,7 +27,7 @@ exist there and the project has a git remote, the plugin first clones it into th
   credential fails with git's error instead of waiting.
 - Only https and ssh remotes are cloned.
 
-The host needs git installed and at least one project already open in Paseo.
+The host needs git installed and at least one project in Paseo.
 
 ## Data and access
 
