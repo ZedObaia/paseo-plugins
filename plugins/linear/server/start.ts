@@ -76,7 +76,13 @@ const branchExists = (root: string, branch: string) =>
 
 /** The Paseo project an agent in this directory works in: its workspace's, the deepest one holding it. */
 export async function projectAt(paseo: PaseoApi, cwd: string): Promise<string | null> {
-  const { entries } = await paseo.workspaces.list({ page: { limit: 200 } });
+  const entries: Awaited<ReturnType<PaseoApi["workspaces"]["list"]>>["entries"] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await paseo.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
+    entries.push(...page.entries);
+    cursor = page.pageInfo?.nextCursor ?? undefined;
+  } while (cursor);
   const holding = entries
     .map((workspace) => ({
       projectId: workspace.projectId,

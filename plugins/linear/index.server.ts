@@ -14,13 +14,7 @@ import {
   type AgentTools,
   type Link,
 } from "./shared/contracts";
-import {
-  accountKeys as savedKeys,
-  legacyKey,
-  removeAccount,
-  removeLegacyKey,
-  saveAccount,
-} from "./server/accounts";
+import { accountKeys, removeAccount, saveAccount } from "./server/accounts";
 import { issueText, linear, type Linear } from "./server/linear";
 import { agentsFor, projectAt, startAgent } from "./server/start";
 
@@ -33,22 +27,6 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 export default function contribute(server: PluginServerContext) {
   let links: Record<string, Link> = {};
   let agentTools: AgentTools = "write";
-
-  // The first version kept one key on its own: it becomes an account, once Linear says whose it is.
-  // Offline, it stays where it is until the next start.
-  const migrated = legacyKey()
-    .then(async (apiKey) => {
-      if (!apiKey) return;
-      const { id, name, email, organization } = await linear(apiKey).viewer();
-      // a key saved for the same account since then is newer: it stays
-      await saveAccount(
-        { id, apiKey, workspace: organization.name, urlKey: organization.urlKey, name, email },
-        { replace: false },
-      );
-      await removeLegacyKey();
-    })
-    .catch((error) => console.error("moving the saved Linear key to accounts failed:", error));
-  const accountKeys = async () => (await migrated, savedKeys());
 
   // one client per key, so each asks Linear who it is only once
   const clients = new Map<string, Linear>();
@@ -96,8 +74,6 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(accountsRpc, listAccounts);
   server.handle(addAccountRpc, async ({ apiKey }) => {
-    // the old key's move first, so it can't land on top of this one
-    await migrated;
     const key = apiKey.trim();
     // Linear checks the key: a wrong one fails here with Linear's reason
     const { id, name, email, organization } = await linear(key).viewer();
@@ -112,7 +88,6 @@ export default function contribute(server: PluginServerContext) {
     return listAccounts();
   });
   server.handle(removeAccountRpc, async ({ id }) => {
-    await migrated;
     await removeAccount(id);
     return listAccounts();
   });
@@ -183,7 +158,7 @@ export default function contribute(server: PluginServerContext) {
    * Agents get Linear's own MCP server, signed in as the account their project is linked to:
    * `linear`. In a project that isn't linked they get every account, one server each, named
    * after its workspace when there are several (`linear-acme`). When in doubt, none: settings
-   * not read yet, the linked account removed, or the project not found.
+   * not read yet, the linked account removed, or the agent's project not found.
    */
   const removeHook = server.before("agent.create", async ({ request }, { paseo }) => {
     const { config } = request;
@@ -201,7 +176,9 @@ export default function contribute(server: PluginServerContext) {
     } catch {
       return undefined;
     }
-    const link = projectId ? links[projectId] : undefined;
+    // an agent outside every project could be in a linked one Paseo didn't list
+    if (!projectId) return undefined;
+    const link = links[projectId];
     const given = link ? keys.filter((key) => key.id === link[0].accountId) : keys;
     if (!given.length) return undefined;
     const named = await Promise.all(

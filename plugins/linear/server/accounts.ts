@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -20,14 +20,6 @@ export const ENVIRONMENT_ID = "environment";
 const DIR = () => join(process.env.PASEO_HOME ?? join(homedir(), ".paseo"), "plugin-data", "linear");
 // A file only the daemon's user can read: apps never get the keys back, only who they connect as.
 const FILE = () => join(DIR(), "accounts.json");
-// where the plugin's first version kept its one key
-const LEGACY = () => join(DIR(), "api-key");
-
-export async function legacyKey(): Promise<string | null> {
-  return (await readFile(LEGACY(), "utf8").catch(() => "")).trim() || null;
-}
-
-export const removeLegacyKey = () => rm(LEGACY(), { force: true });
 
 export async function savedAccounts(): Promise<SavedAccount[]> {
   const text = await readFile(FILE(), "utf8").catch((error: NodeJS.ErrnoException) => {
@@ -48,21 +40,15 @@ async function write(accounts: SavedAccount[]): Promise<void> {
 
 // one change at a time: two at once would each write the list they read, dropping the other's
 let changing: Promise<unknown> = Promise.resolve();
-function change(edit: (accounts: SavedAccount[]) => SavedAccount[] | null): Promise<void> {
-  const next = changing.then(async () => {
-    const edited = edit(await savedAccounts());
-    if (edited) await write(edited);
-  });
+function change(edit: (accounts: SavedAccount[]) => SavedAccount[]): Promise<void> {
+  const next = changing.then(async () => write(edit(await savedAccounts())));
   changing = next.catch(() => {});
   return next;
 }
 
-/** Adds an account, or replaces its key; with `replace: false` an account already saved stays as it is. */
-export function saveAccount(account: SavedAccount, { replace = true } = {}): Promise<void> {
-  return change((accounts) => {
-    if (!replace && accounts.some((saved) => saved.id === account.id)) return null;
-    return [...accounts.filter((saved) => saved.id !== account.id), account];
-  });
+/** Adds an account, or replaces its key. */
+export function saveAccount(account: SavedAccount): Promise<void> {
+  return change((accounts) => [...accounts.filter((saved) => saved.id !== account.id), account]);
 }
 
 export function removeAccount(id: string): Promise<void> {

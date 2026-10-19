@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -365,37 +365,6 @@ test("agents get the linked account's Linear tools, every account's when not lin
   assert.equal(await create("/repo"), undefined);
 });
 
-test("the first version's single key becomes an account", async () => {
-  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-legacy-"));
-  mkdirSync(join(process.env.PASEO_HOME, "plugin-data", "linear"), { recursive: true });
-  writeFileSync(join(process.env.PASEO_HOME, "plugin-data", "linear", "api-key"), "lin_api_old\n");
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = fakeFetch({
-    body: {
-      data: {
-        viewer: { id: "u-old", name: "Sam", email: "sam@acme.com" },
-        organization: { name: "Acme", urlKey: "acme" },
-      },
-    },
-  }).request;
-  const handlers = new Map<string, (input: unknown) => Promise<unknown>>();
-  contribute({
-    registerSettings: () => ({ read: async () => ({ status: "invalid" }), subscribe: () => () => {} }),
-    handle: (contract: { name: string }, handler: (input: unknown) => Promise<unknown>) =>
-      handlers.set(contract.name, handler),
-    before: () => () => {},
-  } as never);
-  // the first request waits for the move
-  const { accounts } = (await handlers.get("linear.accounts")!({})) as { accounts: { id: string }[] };
-  globalThis.fetch = realFetch;
-  assert.deepEqual(
-    accounts.map((a) => a.id),
-    ["u-old"],
-  );
-  assert.equal((await savedAccounts())[0].apiKey, "lin_api_old");
-  assert.equal(existsSync(join(process.env.PASEO_HOME, "plugin-data", "linear", "api-key")), false);
-});
-
 const team = (id: string): Scope => ({ accountId: "a", kind: "team", id, name: id });
 const project = (id: string): Scope => ({ accountId: "a", kind: "project", id, name: id });
 const view = (id: string): Scope => ({ accountId: "a", kind: "view", id, name: id });
@@ -462,7 +431,7 @@ test("version 1 links of one scope each become lists", async () => {
 });
 
 /** The agent.create hook of a fresh plugin, with settings read by `read` and projects found by `list`. */
-function agentHook(read: () => Promise<unknown>, list: () => Promise<unknown>) {
+function agentHook(read: () => Promise<unknown>, list: (options?: never) => Promise<unknown>) {
   let hook: ((input: { request: unknown }, context: unknown) => Promise<unknown>) | undefined;
   contribute({
     registerSettings: () => ({ read, subscribe: () => () => {} }),
@@ -499,7 +468,7 @@ test("no Linear keys before settings are read, nor while they're invalid", async
   assert.equal(await invalid("/repo"), undefined);
 });
 
-test("a project linked to a removed account, or one that can't be looked up, gets no keys", async () => {
+test("an agent whose project is linked to a removed account, can't be looked up or isn't found gets no keys", async () => {
   process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-closed-"));
   await saveAccount(account("u-acme", "acme"));
   await saveAccount(account("u-side", "side"));
@@ -513,6 +482,8 @@ test("a project linked to a removed account, or one that can't be looked up, get
     },
   );
   assert.equal(await lost("/repo"), undefined);
+  const outside = agentHook(async () => settingsOf({}), inRepo);
+  assert.equal(await outside("/elsewhere"), undefined);
 });
 
 test("two people's keys for one workspace get servers of their own", async () => {
@@ -537,9 +508,18 @@ test("accounts changed at once keep every change", async () => {
   assert.deepEqual((await savedAccounts()).map((a) => a.id).sort(), ["u1", "u3", "u4"]);
 });
 
-test("the old key's move keeps a key saved for the same account since", async () => {
-  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-keep-"));
-  await saveAccount({ ...account("u-old", "acme"), apiKey: "lin_api_newer" });
-  await saveAccount({ ...account("u-old", "acme"), apiKey: "lin_api_old" }, { replace: false });
-  assert.equal((await savedAccounts())[0].apiKey, "lin_api_newer");
+test("an agent's project is found on any page of workspaces", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-pages-"));
+  await saveAccount(account("u-acme", "acme"));
+  await saveAccount(account("u-side", "side"));
+  const link = [{ accountId: "u-side", kind: "team", id: "T", name: "T" }];
+  const pages: Record<string, unknown> = {
+    first: { entries: [{ projectId: "other", projectRootPath: "/other" }], pageInfo: { nextCursor: "2" } },
+    "2": { entries: [{ projectId: "prj", projectRootPath: "/repo" }], pageInfo: { nextCursor: null } },
+  };
+  const create = agentHook(
+    async () => settingsOf({ prj: link }),
+    async (options?: { page?: { cursor?: string } }) => pages[options?.page?.cursor ?? "first"],
+  );
+  assert.deepEqual(await create("/repo/src"), { linear: "Bearer lin_api_side" });
 });
