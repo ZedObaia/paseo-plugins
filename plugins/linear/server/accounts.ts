@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
 /** A Linear account you added: one personal API key, for one Linear workspace. */
@@ -40,17 +41,32 @@ async function write(accounts: SavedAccount[]): Promise<void> {
   const file = FILE();
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   await chmod(dirname(file), 0o700);
-  await writeFile(`${file}.tmp`, JSON.stringify(accounts, null, 2), { mode: 0o600 });
-  await rename(`${file}.tmp`, file);
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  await writeFile(temporary, JSON.stringify(accounts, null, 2), { mode: 0o600 });
+  await rename(temporary, file);
 }
 
-export async function saveAccount(account: SavedAccount): Promise<void> {
-  const others = (await savedAccounts()).filter((saved) => saved.id !== account.id);
-  await write([...others, account]);
+// one change at a time: two at once would each write the list they read, dropping the other's
+let changing: Promise<unknown> = Promise.resolve();
+function change(edit: (accounts: SavedAccount[]) => SavedAccount[] | null): Promise<void> {
+  const next = changing.then(async () => {
+    const edited = edit(await savedAccounts());
+    if (edited) await write(edited);
+  });
+  changing = next.catch(() => {});
+  return next;
 }
 
-export async function removeAccount(id: string): Promise<void> {
-  await write((await savedAccounts()).filter((saved) => saved.id !== id));
+/** Adds an account, or replaces its key; with `replace: false` an account already saved stays as it is. */
+export function saveAccount(account: SavedAccount, { replace = true } = {}): Promise<void> {
+  return change((accounts) => {
+    if (!replace && accounts.some((saved) => saved.id === account.id)) return null;
+    return [...accounts.filter((saved) => saved.id !== account.id), account];
+  });
+}
+
+export function removeAccount(id: string): Promise<void> {
+  return change((accounts) => accounts.filter((saved) => saved.id !== id));
 }
 
 /** Every account's key: the saved ones, then LINEAR_API_KEY from the daemon's environment. */

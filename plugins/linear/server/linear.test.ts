@@ -460,3 +460,86 @@ test("version 1 links of one scope each become lists", async () => {
   );
   assert.deepEqual(migrated, { projects: { p1: [team("T1")], p2: [view("V")] }, agentTools: "read" });
 });
+
+/** The agent.create hook of a fresh plugin, with settings read by `read` and projects found by `list`. */
+function agentHook(read: () => Promise<unknown>, list: () => Promise<unknown>) {
+  let hook: ((input: { request: unknown }, context: unknown) => Promise<unknown>) | undefined;
+  contribute({
+    registerSettings: () => ({ read, subscribe: () => () => {} }),
+    handle: () => {},
+    before: (_name: string, handler: typeof hook) => ((hook = handler), () => {}),
+  } as never);
+  const paseo = { workspaces: { list } };
+  return async (cwd: string) => {
+    const out = (await hook!({ request: { config: { provider: "claude", cwd } } }, { paseo })) as
+      | { config: { mcpServers: Record<string, { url: string; headers: { Authorization: string } }> } }
+      | undefined;
+    return (
+      out &&
+      Object.fromEntries(Object.entries(out.config.mcpServers).map(([n, s]) => [n, s.headers.Authorization]))
+    );
+  };
+}
+const settingsOf = (projects: Record<string, unknown>, agentTools = "write") => ({
+  status: "ready",
+  revision: "1",
+  values: { projects, agentTools },
+});
+const inRepo = async () => ({ entries: [{ projectId: "prj", projectRootPath: "/repo" }] });
+
+test("no Linear keys before settings are read, nor while they're invalid", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-early-"));
+  await saveAccount(account("u-acme", "acme"));
+  let settle!: (state: unknown) => void;
+  const create = agentHook(() => new Promise((resolve) => (settle = resolve)), inRepo);
+  const early = create("/repo");
+  settle(settingsOf({}, "off"));
+  assert.equal(await early, undefined);
+  const invalid = agentHook(async () => ({ status: "invalid", revision: "1", error: "bad" }), inRepo);
+  assert.equal(await invalid("/repo"), undefined);
+});
+
+test("a project linked to a removed account, or one that can't be looked up, gets no keys", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-closed-"));
+  await saveAccount(account("u-acme", "acme"));
+  await saveAccount(account("u-side", "side"));
+  const link = [{ accountId: "u-gone", kind: "team", id: "T", name: "T" }];
+  const create = agentHook(async () => settingsOf({ prj: link }), inRepo);
+  assert.equal(await create("/repo"), undefined);
+  const lost = agentHook(
+    async () => settingsOf({}),
+    async () => {
+      throw new Error("daemon busy");
+    },
+  );
+  assert.equal(await lost("/repo"), undefined);
+});
+
+test("two people's keys for one workspace get servers of their own", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-names-"));
+  await saveAccount(account("u-aaaaaaaa-1", "acme"));
+  await saveAccount({ ...account("u-bbbbbbbb-2", "acme"), apiKey: "lin_api_other" });
+  const create = agentHook(async () => settingsOf({}), inRepo);
+  assert.deepEqual(await create("/repo"), {
+    "linear-acme-u-aaaaaa": "Bearer lin_api_acme",
+    "linear-acme-u-bbbbbb": "Bearer lin_api_other",
+  });
+});
+
+test("accounts changed at once keep every change", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-race-"));
+  await Promise.all([
+    saveAccount(account("u1", "one")),
+    saveAccount(account("u2", "two")),
+    saveAccount(account("u3", "three")),
+  ]);
+  await Promise.all([removeAccount("u2"), saveAccount(account("u4", "four"))]);
+  assert.deepEqual((await savedAccounts()).map((a) => a.id).sort(), ["u1", "u3", "u4"]);
+});
+
+test("the old key's move keeps a key saved for the same account since", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-keep-"));
+  await saveAccount({ ...account("u-old", "acme"), apiKey: "lin_api_newer" });
+  await saveAccount({ ...account("u-old", "acme"), apiKey: "lin_api_old" }, { replace: false });
+  assert.equal((await savedAccounts())[0].apiKey, "lin_api_newer");
+});

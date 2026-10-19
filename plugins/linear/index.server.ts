@@ -40,14 +40,11 @@ export default function contribute(server: PluginServerContext) {
     .then(async (apiKey) => {
       if (!apiKey) return;
       const { id, name, email, organization } = await linear(apiKey).viewer();
-      await saveAccount({
-        id,
-        apiKey,
-        workspace: organization.name,
-        urlKey: organization.urlKey,
-        name,
-        email,
-      });
+      // a key saved for the same account since then is newer: it stays
+      await saveAccount(
+        { id, apiKey, workspace: organization.name, urlKey: organization.urlKey, name, email },
+        { replace: false },
+      );
       await removeLegacyKey();
     })
     .catch((error) => console.error("moving the saved Linear key to accounts failed:", error));
@@ -82,17 +79,25 @@ export default function contribute(server: PluginServerContext) {
     return { accounts };
   }
 
+  // Until settings are read, and while they don't read as valid, agents get no Linear keys: they
+  // could be Off, read-only, or one account's.
+  let settingsValid = false;
   const settings = server.registerSettings(linearSettings);
   const keep = (state: Awaited<ReturnType<typeof settings.read>>) => {
-    if (state.status !== "ready") return;
+    settingsValid = state.status === "ready";
+    if (state.status !== "ready") return console.error("Linear settings are invalid:", state.error);
     links = state.values.projects;
     agentTools = state.values.agentTools;
   };
-  settings.read().then(keep, (error) => console.error("reading settings failed:", error));
+  const settingsRead = settings
+    .read()
+    .then(keep, (error) => console.error("reading settings failed:", error));
   const unsubscribe = settings.subscribe(keep);
 
   server.handle(accountsRpc, listAccounts);
   server.handle(addAccountRpc, async ({ apiKey }) => {
+    // the old key's move first, so it can't land on top of this one
+    await migrated;
     const key = apiKey.trim();
     // Linear checks the key: a wrong one fails here with Linear's reason
     const { id, name, email, organization } = await linear(key).viewer();
@@ -107,6 +112,7 @@ export default function contribute(server: PluginServerContext) {
     return listAccounts();
   });
   server.handle(removeAccountRpc, async ({ id }) => {
+    await migrated;
     await removeAccount(id);
     return listAccounts();
   });
@@ -176,29 +182,48 @@ export default function contribute(server: PluginServerContext) {
   /**
    * Agents get Linear's own MCP server, signed in as the account their project is linked to:
    * `linear`. In a project that isn't linked they get every account, one server each, named
-   * after its workspace when there are several (`linear-acme`).
+   * after its workspace when there are several (`linear-acme`). When in doubt, none: settings
+   * not read yet, the linked account removed, or the project not found.
    */
   const removeHook = server.before("agent.create", async ({ request }, { paseo }) => {
     const { config } = request;
     // Paseo's own background agents (commit messages, PR descriptions) don't need Linear
-    if (config.internal || agentTools === "off") return undefined;
+    if (config.internal) return undefined;
+    await settingsRead;
+    if (!settingsValid || agentTools === "off") return undefined;
     if (Object.keys(config.mcpServers ?? {}).some((name) => name === "linear" || name.startsWith("linear-")))
       return undefined;
     const keys = await accountKeys().catch(() => []);
     if (!keys.length) return undefined;
-    const projectId = await projectAt(paseo, config.cwd).catch(() => null);
-    const linked = keys.filter((key) => projectId && key.id === links[projectId]?.[0].accountId);
-    const given = linked.length ? linked : keys;
+    let projectId: string | null;
+    try {
+      projectId = await projectAt(paseo, config.cwd);
+    } catch {
+      return undefined;
+    }
+    const link = projectId ? links[projectId] : undefined;
+    const given = link ? keys.filter((key) => key.id === link[0].accountId) : keys;
+    if (!given.length) return undefined;
+    const named = await Promise.all(
+      given.map(async ({ id, apiKey, saved }) => ({
+        id,
+        apiKey,
+        urlKey:
+          saved?.urlKey ??
+          (
+            await client(apiKey)
+              .viewer()
+              .catch(() => null)
+          )?.organization.urlKey ??
+          "env",
+      })),
+    );
     const servers: Record<string, { type: "http"; url: string; headers: Record<string, string> }> = {};
-    for (const { apiKey, saved } of given) {
-      const urlKey =
-        saved?.urlKey ??
-        (
-          await client(apiKey)
-            .viewer()
-            .catch(() => null)
-        )?.organization.urlKey;
-      const name = given.length === 1 ? "linear" : `linear-${urlKey ?? "env"}`;
+    for (const { id, apiKey, urlKey } of named) {
+      // two people's keys for the same workspace: the account tells them apart
+      const shared = named.filter((other) => other.urlKey === urlKey).length > 1;
+      const name =
+        named.length === 1 ? "linear" : shared ? `linear-${urlKey}-${id.slice(0, 8)}` : `linear-${urlKey}`;
       servers[name] = {
         type: "http",
         url: MCP_URL[agentTools],

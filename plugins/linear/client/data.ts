@@ -76,7 +76,11 @@ export interface Filters {
 export function useIssues(hostId: string, scopes: Link, filters: Filters) {
   const issues = useRpc(issuesRpc);
   return useQuery({
-    queryKey: [...keys.issues(hostId), scopes.map((scope) => `${scope.kind}:${scope.id}`), filters],
+    queryKey: [
+      ...keys.issues(hostId),
+      scopes.map((scope) => `${scope.accountId}/${scope.kind}:${scope.id}`),
+      filters,
+    ],
     queryFn: () => issues({ scopes, ...filters }),
     refetchInterval: POLL_MS,
     placeholderData: (previous) => previous,

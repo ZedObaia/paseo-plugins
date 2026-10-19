@@ -125,6 +125,8 @@ export function ScopePicker({
   cancel,
   unlink,
   addAccount,
+  saving = false,
+  saveError = null,
 }: {
   theme: PluginTheme;
   compact: boolean;
@@ -136,6 +138,10 @@ export function ScopePicker({
   cancel?: () => void;
   unlink?: () => void;
   addAccount(): void;
+  /** The link is being saved: Save and Unlink wait. */
+  saving?: boolean;
+  /** Why the last save didn't go through. */
+  saveError?: string | null;
 }) {
   const c = theme.colors;
   const s = sizes(compact);
@@ -216,6 +222,7 @@ export function ScopePicker({
             variant="ghost"
             icon="Unlink"
             label="Unlink"
+            disabled={saving}
             onPress={unlink}
           />
         ) : null}
@@ -226,11 +233,12 @@ export function ScopePicker({
           theme={theme}
           compact={compact}
           variant="primary"
-          label="Save"
-          disabled={!chosen.length}
+          label={saving ? "Saving…" : "Save"}
+          disabled={!chosen.length || saving}
           onPress={() => save(chosen)}
         />
       </View>
+      {saveError ? <Notice theme={theme} danger text={saveError} /> : null}
       {scopes.isLoading ? <ActivityIndicator color={c.foregroundMuted} /> : null}
       {scopes.error ? <Notice theme={theme} danger text={errorMessage(scopes.error)} /> : null}
       {groups.map(([title, list]) =>
@@ -328,6 +336,8 @@ export function linearPanel(client: PluginClientContext) {
               : undefined
           }
           addAccount={() => client.openSettings("accounts")}
+          saving={settings.saving}
+          saveError={settings.saveError}
           save={async (link) => {
             const projects = { ...settings.values.projects, [project.id]: link };
             if (await settings.save({ ...settings.values, projects }, settings.revision)) setPicking(false);

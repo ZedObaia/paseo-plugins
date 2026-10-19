@@ -86,6 +86,8 @@ export function projectSettings(client: PluginClientContext) {
                 accounts={all}
                 current={current}
                 save={(link) => void save(editing.id, link)}
+                saving={settings.saving}
+                saveError={settings.saveError}
                 cancel={() => setEditing(null)}
                 unlink={current ? () => void save(editing.id, null) : undefined}
                 addAccount={() => {

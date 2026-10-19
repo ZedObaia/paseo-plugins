@@ -303,7 +303,7 @@ export function Board({
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>({ mine: false, done: false, search: "" });
   const [draft, setDraft] = useState("");
-  const [label, setLabel] = useState<string | null>(null);
+  const [label, setLabel] = useState<{ name: string; color: string } | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const timer = setTimeout(() => setFilters((f) => ({ ...f, search: draft.trim() })), SEARCH_DELAY_MS);
@@ -312,8 +312,10 @@ export function Board({
 
   const query = useIssues(hostId, scopes, filters);
   const all = query.data?.issues ?? [];
-  const labels = labelsOf(all);
-  const shown = label ? all.filter((issue) => issue.labels.some((l) => l.name === label)) : all;
+  // the label you picked stays as a chip even when no listed issue has it anymore, so it can be unpicked
+  const listed = labelsOf(all);
+  const labels = label && !listed.some((l) => l.name === label.name) ? [label, ...listed] : listed;
+  const shown = label ? all.filter((issue) => issue.labels.some((l) => l.name === label.name)) : all;
   const board = columns(shown);
   const context: CardContext = {
     theme,
@@ -408,8 +410,8 @@ export function Board({
             <Pressable
               key={l.name}
               accessibilityRole="button"
-              accessibilityState={{ selected: label === l.name }}
-              onPress={() => setLabel(label === l.name ? null : l.name)}
+              accessibilityState={{ selected: label?.name === l.name }}
+              onPress={() => setLabel(label?.name === l.name ? null : l)}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -418,8 +420,8 @@ export function Board({
                 minHeight: compact ? 32 : 24,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: label === l.name ? l.color : c.border,
-                backgroundColor: label === l.name ? faint(l.color) : "transparent",
+                borderColor: label?.name === l.name ? l.color : c.border,
+                backgroundColor: label?.name === l.name ? faint(l.color) : "transparent",
               }}
             >
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: l.color }} />
