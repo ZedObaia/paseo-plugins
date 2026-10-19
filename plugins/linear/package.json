@@ -1,0 +1,27 @@
+{
+  "name": "paseo-plugin-linear",
+  "version": "0.1.0",
+  "description": "Linear issues from several accounts, linked per project: boards, filters, and agents started from issues.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZedObaia/paseo-plugins.git",
+    "directory": "plugins/linear"
+  },
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "test": "tsx --test server/*.test.ts"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.11.4",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.20.5",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  }
+}

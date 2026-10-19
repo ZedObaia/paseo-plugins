@@ -1,0 +1,9 @@
+{
+  "id": "linear",
+  "name": "Linear",
+  "description": "Linear issues from several accounts, linked per project: boards, filters, and agents started from issues.",
+  "icon": "assets/icon.png",
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}

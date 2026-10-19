@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        plugin: [resources, devices, projects-everywhere, ports, auto-fetch]
+        plugin: [resources, devices, projects-everywhere, ports, auto-fetch, linear]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
