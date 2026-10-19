@@ -2,12 +2,13 @@ import { homedir } from "node:os";
 import { basename, sep } from "node:path";
 import type { Moved, Repo, Status } from "../shared/contracts";
 import type { FastForward } from "./git";
+import { wait } from "./wait";
 
 export interface Git {
-  commonDir(dir: string): Promise<string>;
+  commonDir(dir: string, options: { signal?: AbortSignal }): Promise<string>;
   mainPath(gitDir: string): string;
   fetchAll(gitDir: string, options: { signal?: AbortSignal }): Promise<void>;
-  fastForward(gitDir: string): Promise<FastForward[]>;
+  fastForward(gitDir: string, options: { signal?: AbortSignal }): Promise<FastForward[]>;
 }
 
 interface State {
@@ -33,18 +34,6 @@ const tilde = (path: string) =>
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** Resolves with whether `promise` settled within `ms`. */
-const within = (promise: Promise<unknown>, ms: number) => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    promise.then(
-      () => true,
-      () => true,
-    ),
-    new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms))),
-  ]).finally(() => clearTimeout(timer));
-};
-
 /**
  * Keeps the repositories behind the host's workspaces fetched: each one on its own schedule, one
  * at a time, and less often while it keeps failing.
@@ -53,8 +42,7 @@ export class Fetcher {
   intervalMs = 5 * 60_000;
   fastForward = true;
   private readonly repos = new Map<string, State>();
-  /** Each workspace directory's repository; that never changes. */
-  private readonly dirs = new Map<string, string>();
+  private queue: Promise<void> = Promise.resolve();
   private listError: string | null = null;
   private ticking: Promise<void> | undefined;
   private again = false;
@@ -95,11 +83,7 @@ export class Fetcher {
   }
 
   async repoOf(dir: string): Promise<string> {
-    const known = this.dirs.get(dir);
-    if (known) return known;
-    const id = await this.git.commonDir(dir);
-    this.dirs.set(dir, id);
-    return id;
+    return this.git.commonDir(dir, { signal: this.stopped.signal });
   }
 
   /** Brings the list of repositories up to date with the workspaces. */
@@ -113,9 +97,11 @@ export class Fetcher {
       return;
     }
     const counts = new Map<string, number>();
+    const resolved = new Map<string, string | null>();
     for (const dir of dirs) {
       // a directory that isn't a repository, or no longer exists, has nothing to fetch
-      const id = await this.repoOf(dir).catch(() => null);
+      if (!resolved.has(dir)) resolved.set(dir, await this.repoOf(dir).catch(() => null));
+      const id = resolved.get(dir);
       if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     for (const [id, state] of this.repos) if (!counts.has(id) && !state.running) this.repos.delete(id);
@@ -144,8 +130,14 @@ export class Fetcher {
 
   /** Fetches a repository now, or joins the fetch already running. Rejects with git's error. */
   refresh(id: string): Promise<void> {
+    if (this.stopped.signal.aborted) return Promise.resolve();
     const state = this.state(id);
-    return (state.running ??= this.run(state).finally(() => (state.running = undefined)));
+    if (state.running) return state.running;
+    const run = this.queue.then(() => {
+      if (!this.stopped.signal.aborted) return this.run(state);
+    });
+    this.queue = run.catch(() => {});
+    return (state.running = run.finally(() => (state.running = undefined)));
   }
 
   private async run(state: State): Promise<void> {
@@ -153,7 +145,10 @@ export class Fetcher {
     state.lastAttemptAt = this.now();
     try {
       await this.git.fetchAll(state.id, { signal: this.stopped.signal });
-      const moved = this.fastForward ? await this.git.fastForward(state.id) : [];
+      if (this.stopped.signal.aborted) return;
+      const moved = this.fastForward
+        ? await this.git.fastForward(state.id, { signal: this.stopped.signal })
+        : [];
       const at = this.now();
       state.moved = [
         ...moved.map((m) => ({ ...m, at })),
@@ -175,11 +170,16 @@ export class Fetcher {
    * in the last `maxAgeMs`. Never rejects: whoever waits goes on either way.
    */
   async fresh(dir: string, maxAgeMs: number, waitMs: number): Promise<void> {
-    const id = await this.repoOf(dir).catch(() => null);
-    if (!id) return;
-    const { lastFetchedAt } = this.state(id);
-    if (lastFetchedAt !== null && this.now() - lastFetchedAt < maxAgeMs) return;
-    await within(this.refresh(id), waitMs);
+    await wait(
+      (async () => {
+        const id = await this.repoOf(dir).catch(() => null);
+        if (!id) return;
+        const { lastFetchedAt } = this.state(id);
+        if (lastFetchedAt !== null && this.now() - lastFetchedAt < maxAgeMs) return;
+        await this.refresh(id);
+      })(),
+      waitMs,
+    ).catch(() => {});
   }
 
   /**
@@ -187,23 +187,26 @@ export class Fetcher {
    * one, has every repository fetched on the next tick and returns at once.
    */
   async fetchNow(target: { repo?: string; directory?: string }, waitMs: number): Promise<void> {
-    const { directory } = target;
-    const id =
-      target.repo ??
-      (directory
-        ? await this.repoOf(directory).catch(() => {
-            throw new Error(`${directory} isn't in a git repository.`);
-          })
-        : undefined);
-    if (!id) {
-      for (const state of this.repos.values()) state.forced = true;
-      void this.tick();
-      return;
-    }
-    if (target.repo && !this.repos.has(id)) throw new Error("That repository has no workspaces anymore.");
-    const running = this.refresh(id);
-    // still running after the wait: the status says so
-    if (await within(running, waitMs)) await running;
+    await wait(
+      (async () => {
+        const { directory } = target;
+        const id =
+          target.repo ??
+          (directory
+            ? await this.repoOf(directory).catch(() => {
+                throw new Error(`${directory} isn't in a git repository.`);
+              })
+            : undefined);
+        if (!id) {
+          for (const state of this.repos.values()) if (!state.running) state.forced = true;
+          void this.tick().catch((error) => (this.listError = message(error)));
+          return;
+        }
+        if (target.repo && !this.repos.has(id)) throw new Error("That repository has no workspaces anymore.");
+        await this.refresh(id);
+      })(),
+      waitMs,
+    );
   }
 
   status(): Status {
@@ -218,7 +221,7 @@ export class Fetcher {
         lastFetchedAt: state.lastFetchedAt,
         nextFetchAt: state.running ? null : this.nextAt(state),
         error: state.error,
-        moved: state.moved,
+        moved: state.moved.filter((m) => this.now() - m.at < MOVES_KEPT_MS),
       };
     });
     repos.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));

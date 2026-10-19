@@ -45,14 +45,14 @@ function clock(start = 1_000_000) {
 test("fetches each repository once for all its workspaces, then on schedule", async () => {
   const { git, fetched } = fakeGit();
   const time = clock();
-  const fetcher = new Fetcher(git, async () => ["/a/x", "/a/y", "/b/z", "/none/dir"], time.now);
+  const fetcher = new Fetcher(git, async () => ["/a/x", "/a/x", "/a/y", "/b/z", "/none/dir"], time.now);
   await fetcher.tick();
   assert.deepEqual(fetched, ["/a", "/b"]);
   const status = fetcher.status();
   assert.deepEqual(
     status.repos.map((r) => [r.id, r.workspaces, r.lastFetchedAt, r.nextFetchAt]),
     [
-      ["/a", 2, time.now(), time.now() + 5 * MIN],
+      ["/a", 3, time.now(), time.now() + 5 * MIN],
       ["/b", 1, time.now(), time.now() + 5 * MIN],
     ],
   );
@@ -103,8 +103,81 @@ test("keeps the branches it moved for a day, newest first", async () => {
   );
   moves.delete("/a");
   time.advance(24 * 60 * MIN);
+  assert.deepEqual(fetcher.status().repos[0].moved, []);
   await fetcher.fetchNow({ repo: "/a" }, 1_000);
   assert.deepEqual(fetcher.status().repos[0].moved, []);
+});
+
+test("manual fetches and worktree preparation share the timer's queue", async () => {
+  const { git, fetched, holdUntil } = fakeGit();
+  const fetcher = new Fetcher(git, async () => ["/a/x", "/b/y"]);
+  let release!: () => void;
+  holdUntil(new Promise((resolve) => (release = resolve)));
+  const tick = fetcher.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  await fetcher.fetchNow({ directory: "/b/y" }, 5);
+  await fetcher.fresh("/b/y", MIN, 5);
+  assert.deepEqual(fetched, ["/a"]);
+  assert.equal(fetcher.status().repos.find((r) => r.id === "/b")?.fetching, true);
+  release();
+  await tick;
+  assert.deepEqual(fetched, ["/a", "/b"]);
+});
+
+test("a failed fetch releases the queue for other repositories", async () => {
+  const { git, fetched, failing } = fakeGit();
+  failing.add("/a");
+  const fetcher = new Fetcher(git, async () => ["/a/x", "/b/y"]);
+  await fetcher.tick();
+  assert.deepEqual(fetched, ["/a", "/b"]);
+  assert.equal(fetcher.status().repos[1].error, null);
+});
+
+test("stopping skips queued fetches and fast-forwards after a running fetch", async () => {
+  const { git, fetched, holdUntil } = fakeGit();
+  let forwards = 0;
+  git.fastForward = async () => (forwards++, []);
+  const fetcher = new Fetcher(git, async () => ["/a/x", "/b/y"]);
+  let release!: () => void;
+  holdUntil(new Promise((resolve) => (release = resolve)));
+  const tick = fetcher.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  await fetcher.fetchNow({ directory: "/b/y" }, 5);
+  fetcher.stop();
+  release();
+  await tick;
+  await fetcher.fetchNow({ directory: "/c/z" }, 5);
+  assert.deepEqual(fetched, ["/a"]);
+  assert.equal(forwards, 0);
+});
+
+test("directory lookup is included in the wait budget", async () => {
+  const { git, fetched } = fakeGit();
+  let release!: (dir: string) => void;
+  const lookup = new Promise<string>((resolve) => (release = resolve));
+  git.commonDir = async () => lookup;
+  const fetcher = new Fetcher(git, async () => []);
+  await fetcher.fresh("/a/x", MIN, 5);
+  await fetcher.fetchNow({ directory: "/a/x" }, 5);
+  assert.deepEqual(fetched, []);
+  release("/a");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(fetched, ["/a"]);
+});
+
+test("a directory reused by another repository is resolved again", async () => {
+  const { git, fetched } = fakeGit();
+  let id = "/a";
+  git.commonDir = async () => id;
+  const fetcher = new Fetcher(git, async () => ["/checkout"]);
+  await fetcher.tick();
+  id = "/b";
+  await fetcher.tick();
+  assert.deepEqual(fetched, ["/a", "/b"]);
+  assert.deepEqual(
+    fetcher.status().repos.map((r) => r.id),
+    ["/b"],
+  );
 });
 
 test("fetching now joins a running fetch, and says so when it outlasts the wait", async () => {
@@ -139,6 +212,19 @@ test("fetching every repository now fetches those that aren't due", async () => 
     fetcher.status().repos.some((r) => r.fetching),
     false,
   );
+});
+
+test("fetching all joins a repository already being fetched", async () => {
+  const { git, fetched, holdUntil } = fakeGit();
+  const fetcher = new Fetcher(git, async () => ["/a/x"]);
+  let release!: () => void;
+  holdUntil(new Promise((resolve) => (release = resolve)));
+  const tick = fetcher.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  await fetcher.fetchNow({}, 5);
+  release();
+  await tick;
+  assert.deepEqual(fetched, ["/a"]);
 });
 
 test("a fresh repository isn't fetched again before a new worktree", async () => {

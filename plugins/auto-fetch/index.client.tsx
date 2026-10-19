@@ -1,5 +1,6 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { FetchSettings } from "./client/settings";
+import { PendingWorktreesItem } from "./client/worktrees";
 import { attachRpc, fetchNowRpc, importWorktreesRpc } from "./shared/contracts";
 
 export default function contribute(client: PluginClientContext) {
@@ -7,6 +8,11 @@ export default function contribute(client: PluginClientContext) {
   client.rpc(attachRpc, {}).catch((error) => console.warn("[auto-fetch] attach failed", error));
   const keywords = ["git", "fetch", "pull", "worktree", "remote", "sync"];
   client.addSettingsScreen({ id: "fetch", title: "Fetching", icon: "RefreshCw", Component: FetchSettings });
+  client.addSidebarFooterItem({
+    id: "worktrees",
+    title: "Worktrees to add",
+    Component: PendingWorktreesItem,
+  });
   client.addCommandCenterItem({
     id: "fetch-workspace",
     title: "Fetch this workspace's repository",

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { test, type TestContext } from "node:test";
 import { remoteBase } from "./base";
+import type { PluginHookContext } from "@getpaseo/plugin/server";
+import { prepareWorktree } from "./prepare";
 
 process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = "Test";
 process.env.GIT_AUTHOR_EMAIL = process.env.GIT_COMMITTER_EMAIL = "test@example.com";
@@ -61,6 +63,47 @@ test("other branches start from what they track, and untracked ones stay", async
   assert.equal(await remoteBase(repo, "local-only"), null);
   assert.equal(await remoteBase(repo, "missing"), null);
   assert.equal(await remoteBase(repo, "refs/tags/v1"), null);
+});
+
+test("a before hook uses the saved settings and preserves checkout requests", async (t) => {
+  const { repo } = clone(t);
+  const context = { signal: new AbortController().signal } as PluginHookContext;
+  let fromRemote = true;
+  const ready = Promise.resolve().then(() => (fromRemote = false));
+  let fetches = 0;
+  const fetcher = { fresh: async () => void fetches++ };
+  const request = { source: { kind: "worktree" as const, cwd: repo, refName: "main" } };
+  assert.equal(await prepareWorktree(request, context, ready, () => fromRemote, fetcher), undefined);
+  assert.equal(fetches, 1);
+  fromRemote = true;
+  const remoteRequest = { source: { ...request.source, cwd: `~/${relative(homedir(), repo)}` } };
+  assert.deepEqual(await prepareWorktree(remoteRequest, context, ready, () => fromRemote, fetcher), {
+    source: { ...remoteRequest.source, refName: "refs/remotes/origin/main" },
+  });
+  const checkout = { source: { ...request.source, action: "checkout" as const } };
+  assert.equal(await prepareWorktree(checkout, context, ready, () => fromRemote, fetcher), undefined);
+  assert.equal(fetches, 2);
+});
+
+test("a before hook's budget covers settings and project lookup", async () => {
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => (release = resolve));
+  let lookups = 0;
+  const context = {
+    signal: new AbortController().signal,
+    paseo: { projects: { list: async () => (lookups++, new Promise(() => {})) } },
+  } as unknown as PluginHookContext;
+  const request = { source: { kind: "worktree" as const, projectId: "p" } };
+  const fetcher = { fresh: async () => assert.fail("preparation expired") };
+  assert.equal(await prepareWorktree(request, context, ready, () => true, fetcher, 10), undefined);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(lookups, 0);
+  assert.equal(
+    await prepareWorktree(request, context, Promise.resolve(), () => true, fetcher, 10),
+    undefined,
+  );
+  assert.equal(lookups, 1);
 });
 
 test("without the remote's HEAD, the default is master when there's no main", async (t) => {

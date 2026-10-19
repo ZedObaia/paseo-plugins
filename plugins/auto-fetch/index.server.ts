@@ -1,54 +1,78 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { watch, type FSWatcher } from "node:fs";
-import { attachRpc, fetchNowRpc, fetchSettings, importWorktreesRpc, statusRpc } from "./shared/contracts";
-import { remoteBase } from "./server/base";
+import {
+  attachRpc,
+  fetchNowRpc,
+  fetchSettings,
+  importWorktreesRpc,
+  pendingWorktreesRpc,
+  statusRpc,
+} from "./shared/contracts";
 import { Fetcher } from "./server/fetcher";
 import { commonDir, fastForward, fetchAll, mainPath } from "./server/git";
 import { Importer, knownProjectsFile } from "./server/importer";
+import { prepareWorktree } from "./server/prepare";
 import {
-  activeWorkspaceDirectories,
   gitProjects,
   paseoHome,
   registryDir,
+  takenDirectories,
   workspaceDirectories,
 } from "./server/registry";
-import { worktreesToAdd } from "./server/worktrees";
+import { missingWorktrees } from "./server/worktrees";
+import { wait } from "./server/wait";
 
 type Paseo = PluginHandlerContext["paseo"];
 
 // Each repository has its own schedule; this is only how often the plugin looks.
 const TICK_MS = 15_000;
 // Paseo times out a before hook at 30 s, and an RPC at 30 s.
-const BEFORE_CREATE_WAIT_MS = 15_000;
 const FETCH_NOW_WAIT_MS = 25_000;
 
 export default function contribute(server: PluginServerContext) {
   const fetcher = new Fetcher({ commonDir, mainPath, fetchAll, fastForward }, () => workspaceDirectories());
   const importer = new Importer({
     projects: () => gitProjects(),
-    workspaceDirs: () => activeWorkspaceDirectories(),
-    worktreesToAdd,
+    takenDirs: (projectId) => takenDirectories(projectId),
+    missingWorktrees,
     file: knownProjectsFile(paseoHome()),
   });
 
-  let fromRemote = true;
+  let fromRemote = false;
+  let configured = false;
+  fetcher.fastForward = false;
   const settings = server.registerSettings(fetchSettings);
   const keep = (state: Awaited<ReturnType<typeof settings.read>>) => {
-    if (state.status !== "ready") return;
+    configured = state.status === "ready";
+    if (state.status !== "ready") {
+      fetcher.fastForward = false;
+      fromRemote = false;
+      return;
+    }
     fetcher.intervalMs = state.values.intervalMinutes * 60_000;
     fetcher.fastForward = state.values.fastForward;
     importer.enabled = state.values.importWorktrees;
     fromRemote = state.values.fromRemote;
   };
   // the first tick waits for the saved settings
-  const ready = settings.read().then(keep, (error) => console.error("reading settings failed:", error));
-  const unsubscribe = settings.subscribe(keep);
+  let receivedUpdate = false;
+  const ready = settings.read().then(
+    (state) => {
+      if (!receivedUpdate) keep(state);
+    },
+    (error) => console.error("reading settings failed:", error),
+  );
+  const unsubscribe = settings.subscribe((state) => {
+    receivedUpdate = true;
+    keep(state);
+  });
 
   // Paseo hands the API to RPCs and hooks only. The app calls attachRpc when it loads, so the
   // plugin has it from then on; until then, new projects wait.
   let paseo: Paseo | undefined;
   const checkProjects = async () => {
     await ready;
+    if (!configured) return;
     await importer
       .check(paseo?.workspaces)
       .catch((error) => console.error("checking projects failed:", error));
@@ -62,8 +86,11 @@ export default function contribute(server: PluginServerContext) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const loop = async () => {
-    await checkProjects();
-    await fetcher.tick().catch((error) => console.error("fetching failed:", error));
+    await ready;
+    if (configured) {
+      void checkProjects();
+      await fetcher.tick().catch((error) => console.error("fetching failed:", error));
+    }
     if (!stopped) timer = setTimeout(loop, TICK_MS);
   };
   timer = setTimeout(loop, 2_000);
@@ -73,6 +100,7 @@ export default function contribute(server: PluginServerContext) {
   let soon: ReturnType<typeof setTimeout> | undefined;
   try {
     watcher = watch(registryDir(), () => {
+      importer.invalidate();
       clearTimeout(soon);
       soon = setTimeout(() => void checkProjects(), 500);
     });
@@ -85,26 +113,10 @@ export default function contribute(server: PluginServerContext) {
   // change request a checkout is for, right before it creates the worktree. A local base, like the
   // main that agents and the CLI branch from, is only as new as your last pull: the plugin swaps it
   // for the remote branch it tracks, or else fetches and moves it forward first, waiting at most
-  // BEFORE_CREATE_WAIT_MS.
-  server.before("workspace.create", async ({ request }, context) => {
+  // 15 seconds, including the time spent resolving its base.
+  server.before("workspace.create", ({ request }, context) => {
     attach(context);
-    const { source } = request;
-    if (source.kind !== "worktree") return;
-    if (source.checkoutSource || source.githubPrNumber || source.refName?.startsWith("refs/remotes/")) return;
-    try {
-      const dir =
-        source.cwd ??
-        (await context.paseo.projects.list()).projects.find((p) => p.projectId === source.projectId)
-          ?.projectRootPath;
-      if (!dir) return;
-      if (fromRemote && source.action !== "checkout") {
-        const base = await remoteBase(dir, source.refName || source.baseBranch);
-        if (base) return { ...request, source: { ...source, refName: base } };
-      }
-      await fetcher.fresh(dir, 60_000, BEFORE_CREATE_WAIT_MS);
-    } catch (error) {
-      console.error("preparing a new worktree failed:", error);
-    }
+    return prepareWorktree(request, context, ready, () => fromRemote, fetcher);
   });
   server.on("workspace.created", (_, context) => attach(context));
   server.on("agent.created", (_, context) => attach(context));
@@ -120,7 +132,16 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     const project = (await gitProjects()).find((p) => p.projectId === projectId);
     if (!project) throw new Error("That project isn't a git repository.");
-    return { added: await importer.importProject(context.paseo.workspaces, project) };
+    return {
+      added: (await wait(importer.importProject(context.paseo.workspaces, project), FETCH_NOW_WAIT_MS)) ?? [],
+      importing: importer.isImporting(projectId),
+    };
+  });
+
+  server.handle(pendingWorktreesRpc, async (_, context) => {
+    attach(context);
+    const projects = await wait(importer.pending(), FETCH_NOW_WAIT_MS);
+    return { projects: projects ?? importer.snapshot(), scanning: importer.scanning };
   });
 
   return () => {
@@ -130,5 +151,6 @@ export default function contribute(server: PluginServerContext) {
     watcher?.close();
     unsubscribe();
     fetcher.stop();
+    importer.stop();
   };
 }

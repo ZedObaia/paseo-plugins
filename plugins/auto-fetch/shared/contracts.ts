@@ -83,9 +83,27 @@ export const attachRpc = defineRpc({
   output: z.object({}),
 });
 
-/** Adds a project's worktrees that have no workspace yet, and answers with their directories. */
+/** Adds a project's missing workspaces, answering after at most 25 s while longer imports continue. */
 export const importWorktreesRpc = defineRpc({
   name: "auto-fetch.import-worktrees",
   input: z.object({ projectId: z.string().min(1) }),
-  output: z.object({ added: z.array(z.string()) }),
+  output: z.object({ added: z.array(z.string()), importing: z.boolean() }),
+});
+
+const pending = z.object({
+  projectId: z.string(),
+  name: z.string(),
+  path: z.string(),
+  /** Its linked worktrees that have no workspace, active or archived in this project. */
+  worktrees: z.array(z.object({ path: z.string(), branch: z.string().nullable() })),
+  importing: z.boolean(),
+  error: z.string().nullable(),
+});
+export type Pending = z.infer<typeof pending>;
+
+/** Each git project's worktrees that have no workspace yet, for the sidebar's footer row. */
+export const pendingWorktreesRpc = defineRpc({
+  name: "auto-fetch.pending-worktrees",
+  input: z.object({}),
+  output: z.object({ projects: z.array(pending), scanning: z.boolean() }),
 });

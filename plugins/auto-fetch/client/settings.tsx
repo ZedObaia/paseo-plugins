@@ -10,6 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pressable, Text, View } from "react-native";
 import { fetchNowRpc, fetchSettings, INTERVALS, statusRpc, type Repo } from "../shared/contracts";
+import { errorMessage } from "./errors";
 
 // The app shares one query cache between its plugins and hosts: keys start with the host.
 const queryKey = (hostId: string) => [hostId, "auto-fetch", "status"];
@@ -68,7 +69,7 @@ function Repositories({ theme, host }: PluginSurfaceProps) {
     onSettled: () => queries.invalidateQueries({ queryKey: queryKey(host.id) }),
   });
   const c = theme.colors;
-  const failure = error ? String(error) : data?.error;
+  const failure = error ? errorMessage(error) : mutation.error ? errorMessage(mutation.error) : data?.error;
   const busy = mutation.isPending && mutation.variables === undefined;
   return (
     <SettingsSection
