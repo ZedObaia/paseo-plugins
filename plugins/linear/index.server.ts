@@ -2,6 +2,8 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
   accountsRpc,
   addAccountRpc,
+  commentRpc,
+  detailRpc,
   issuesRpc,
   linearSettings,
   removeAccountRpc,
@@ -15,12 +17,15 @@ import {
   type Link,
 } from "./shared/contracts";
 import { accountKeys, removeAccount, saveAccount } from "./server/accounts";
-import { issueText, linear, type Linear } from "./server/linear";
+import { issueText, linear, oldestFirst, type Linear } from "./server/linear";
 import { agentsFor, projectAt, startAgent } from "./server/start";
 
 const MCP_URL = { read: "https://mcp.linear.app/mcp/readonly", write: "https://mcp.linear.app/mcp" };
 const MISSING = "Add a Linear account in Settings, Plugins, Linear.";
 const GONE = "That Linear account was removed. Link the project again.";
+const NO_ISSUE = "Linear has no such issue anymore.";
+/** How long the images in an issue's details load without a key: the app never gets one. */
+const IMAGE_LINKS_S = 3600;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -111,9 +116,25 @@ export default function contribute(server: PluginServerContext) {
   server.handle(updateIssueRpc, async ({ accountId, id, ...change }) => ({
     issue: await (await account(accountId)).update(id, change),
   }));
+  server.handle(detailRpc, async ({ accountId, id }) => {
+    const issue = await (await account(accountId)).detail(id, IMAGE_LINKS_S);
+    if (!issue) throw new Error(NO_ISSUE);
+    return {
+      description: issue.description,
+      comments: oldestFirst(issue).map(({ body, createdAt, user }) => ({
+        body,
+        createdAt,
+        user: user?.name ?? null,
+      })),
+    };
+  });
+  server.handle(commentRpc, async ({ accountId, id, body }) => {
+    await (await account(accountId)).comment(id, body);
+    return {};
+  });
   server.handle(startRpc, async ({ accountId, workspaceId, issueId, where }, { paseo }) => {
     const issue = await (await account(accountId)).detail(issueId);
-    if (!issue) throw new Error("Linear has no such issue anymore.");
+    if (!issue) throw new Error(NO_ISSUE);
     return startAgent(paseo, {
       workspaceId,
       issue,

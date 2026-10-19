@@ -124,6 +124,23 @@ export const updateIssueRpc = defineRpc({
   output: z.object({ issue }),
 });
 
+/** An issue's description and its latest comments, oldest first. */
+export const detailRpc = defineRpc({
+  name: "linear.issue.detail",
+  input: z.object({ accountId: z.string().min(1), id: z.string().min(1) }),
+  output: z.object({
+    /** Linear's markdown, or null when there's none. */
+    description: z.string().nullable(),
+    comments: z.array(z.object({ body: z.string(), createdAt: z.string(), user: z.string().nullable() })),
+  }),
+});
+
+export const commentRpc = defineRpc({
+  name: "linear.issue.comment",
+  input: z.object({ accountId: z.string().min(1), id: z.string().min(1), body: z.string().trim().min(1) }),
+  output: z.object({}),
+});
+
 /**
  * Starts an agent on an issue, with the issue as its first message: in a new worktree on the
  * issue's branch, or in the workspace the request came from.

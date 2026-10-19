@@ -116,6 +116,12 @@ export function toIssue(raw: RawIssue, viewerId: string): Issue {
   };
 }
 
+/** The issue's latest comments that say something, oldest first; Linear lists the newest first. */
+export const oldestFirst = (issue: IssueDetail) =>
+  issue.comments.nodes
+    .filter((comment) => comment.body.trim())
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
 /** The issue as text, the way an agent reads it. */
 export function issueText(issue: IssueDetail): string {
   const labels = issue.labels.nodes.map((label) => label.name).join(", ");
@@ -130,10 +136,7 @@ export function issueText(issue: IssueDetail): string {
   if (issue.project) lines.push(`Project: ${issue.project.name}`);
   if (labels) lines.push(`Labels: ${labels}`);
   lines.push("", issue.description?.trim() || "No description.");
-  // Linear lists the newest first
-  const comments = issue.comments.nodes
-    .filter((comment) => comment.body.trim())
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const comments = oldestFirst(issue);
   if (comments.length) {
     lines.push("", "Comments:");
     for (const comment of comments)
@@ -163,10 +166,14 @@ export interface Viewer {
 export function linear(apiKey: string, request: typeof fetch = fetch) {
   let viewer: Promise<Viewer> | undefined;
 
-  async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  async function graphql<T>(
+    query: string,
+    variables: Record<string, unknown> = {},
+    headers: Record<string, string> = {},
+  ): Promise<T> {
     const response = await request(ENDPOINT, {
       method: "POST",
-      headers: { Authorization: apiKey, "Content-Type": "application/json" },
+      headers: { Authorization: apiKey, "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ query, variables }),
     });
     // GraphQL errors come with 400 too: read them first
@@ -193,10 +200,12 @@ export function linear(apiKey: string, request: typeof fetch = fetch) {
       },
     ));
 
-  async function detail(id: string): Promise<IssueDetail | null> {
+  /** With `signFor`, links to files Linear stores work without a key for that many seconds. */
+  async function detail(id: string, signFor?: number): Promise<IssueDetail | null> {
     const data = await graphql<{ issue: IssueDetail | null }>(
       `query($id: String!) { issue(id: $id) { ${DETAIL_FIELDS} } }`,
       { id },
+      signFor ? { "public-file-urls-expire-in": String(signFor) } : {},
     ).catch((error) => {
       // an identifier nobody has, like ABC-1 in a search
       if (error instanceof LinearError && /not found|entity/i.test(error.message)) return { issue: null };
@@ -325,6 +334,20 @@ export function linear(apiKey: string, request: typeof fetch = fetch) {
       if (!data.issueUpdate.success || !data.issueUpdate.issue)
         throw new LinearError("Linear didn't save it");
       return toIssue(data.issueUpdate.issue, viewerId);
+    },
+
+    async comment(issueId: string, body: string): Promise<void> {
+      const data = await graphql<{ commentCreate: { success: boolean } }>(
+        `
+          mutation ($input: CommentCreateInput!) {
+            commentCreate(input: $input) {
+              success
+            }
+          }
+        `,
+        { input: { issueId, body } },
+      );
+      if (!data.commentCreate.success) throw new LinearError("Linear didn't save it");
     },
 
     /** An identifier opens that issue; other text is Linear's full-text search. */

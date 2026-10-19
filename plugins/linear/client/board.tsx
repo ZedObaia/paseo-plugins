@@ -7,6 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView as Row, Text, View } from "rea
 import { columns, labelsOf, type Column } from "../shared/board";
 import { startRpc, updateIssueRpc, type Issue, type IssueAgent, type Link } from "../shared/contracts";
 import { errorMessage, keys, useIssues, useStates, type Filters } from "./data";
+import { Details } from "./details";
 import { Button, faint, IconButton, Notice, Pill, SCOPE_ICON, sizes } from "./ui";
 
 // below this the board is a list grouped by status
@@ -111,6 +112,7 @@ function Card({ context, issue, agents }: { context: CardContext; issue: Issue; 
   const start = useRpc(startRpc);
   const updateIssue = useRpc(updateIssueRpc);
   const [open, setOpen] = useState<null | "actions" | "status">(null);
+  const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const act = async (action: () => Promise<void>) => {
@@ -237,6 +239,14 @@ function Card({ context, issue, agents }: { context: CardContext; issue: Issue; 
           <Button
             theme={theme}
             compact={compact}
+            icon="MessageSquare"
+            label="Details"
+            accessibilityLabel={`${issue.identifier}'s description and comments`}
+            onPress={() => setReading(true)}
+          />
+          <Button
+            theme={theme}
+            compact={compact}
             icon="CircleDot"
             label="Status"
             disabled={busy}
@@ -263,6 +273,16 @@ function Card({ context, issue, agents }: { context: CardContext; issue: Issue; 
         </View>
       ) : null}
       {open === "status" ? <StatusMenu context={context} issue={issue} busy={busy} update={update} /> : null}
+      {reading ? (
+        <Details
+          theme={theme}
+          compact={compact}
+          hostId={hostId}
+          accountId={context.accountId}
+          issue={issue}
+          close={() => setReading(false)}
+        />
+      ) : null}
     </View>
   );
 }

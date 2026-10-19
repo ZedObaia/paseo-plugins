@@ -18,6 +18,8 @@ Tap an issue for its actions:
 - **New worktree** starts an agent in a new worktree on the issue's Linear branch (like
   `zeyad/eng-123-fix-login`), or on that branch again if an earlier worktree left it behind.
 - **This workspace** starts it in the workspace the panel is open in.
+- **Details** opens its description and latest comments, formatted with their images, with a box
+  to add a comment as your account.
 - **Status** moves the issue to another status of its team, and **Assign to me** takes it.
 - The arrow opens it in Linear.
 
@@ -62,6 +64,7 @@ messages, never get it. An agent configured with its own `linear` MCP server kee
 - A board shows the 200 most recently updated issues that match its filters, and says so when
   there are more.
 - There's no dragging cards between columns: **Status** moves them.
+- **Details** shows the 20 latest comments. Tables and embeds in them show as plain text.
 - Label filters come from the issues listed, not from every label in Linear.
 - Phones show a board icon where the web and desktop apps show Linear's logo.
 
@@ -72,7 +75,9 @@ only by the user running the daemon. Apps never get them back, only the workspac
 each connects as. A key does go into the MCP configuration of each new agent that gets its account's
 tools, to sign in to Linear's MCP server.
 
-The plugin talks to `api.linear.app`, and agents to `mcp.linear.app`, only once a key is set. An
+The plugin talks to `api.linear.app`, and agents to `mcp.linear.app`, only once a key is set. To
+show an issue's images, **Details** asks Linear for links to them that work without a key for an
+hour: the app gets those links, never the key. An
 issue you send or start an agent on, and whatever agents read with Linear's tools, becomes part of
 their conversation, so it goes to the agent's model provider like anything else you send.
 

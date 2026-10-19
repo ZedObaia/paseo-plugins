@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   accountsRpc,
   addAccountRpc,
+  detailRpc,
   issuesRpc,
   removeAccountRpc,
   scopesRpc,
@@ -104,6 +105,15 @@ export function useStates(hostId: string, accountId: string, teamId: string) {
     queryKey: [...keys.all(hostId), "states", accountId, teamId],
     queryFn: async () => (await states({ accountId, teamId })).states,
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Under the issues' key, so whatever refreshes the board refreshes it too. */
+export function useDetail(hostId: string, accountId: string, issueId: string) {
+  const detail = useRpc(detailRpc);
+  return useQuery({
+    queryKey: [...keys.issues(hostId), "detail", issueId],
+    queryFn: () => detail({ accountId, id: issueId }),
   });
 }
 

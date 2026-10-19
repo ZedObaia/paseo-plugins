@@ -9,6 +9,7 @@ import contribute from "../index.server";
 import { accountKeys, removeAccount, saveAccount, savedAccounts, type SavedAccount } from "./accounts";
 import { issueFilter, issueText, linear, toIssue, type IssueDetail } from "./linear";
 import { branchFor, pickConfig } from "./start";
+import { parseMarkdown } from "../client/markdown";
 
 const state = (name: string, type: string, position = 0): State => ({
   id: name,
@@ -51,10 +52,16 @@ const detail = (over: Partial<IssueDetail> = {}): IssueDetail => ({
 
 /** A fetch that answers each GraphQL request with the next body, and records the requests. */
 function fakeFetch(...answers: { status?: number; body: unknown }[]) {
-  const requests: { query: string; variables: Record<string, unknown>; auth: string }[] = [];
+  const requests: {
+    query: string;
+    variables: Record<string, unknown>;
+    auth: string;
+    headers: Record<string, string>;
+  }[] = [];
   const request = (async (_url: string, init: RequestInit) => {
     const { query, variables } = JSON.parse(String(init.body));
-    requests.push({ query, variables, auth: (init.headers as Record<string, string>).Authorization });
+    const headers = init.headers as Record<string, string>;
+    requests.push({ query, variables, auth: headers.Authorization, headers });
     const answer = answers.shift() ?? { body: {} };
     return new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 });
   }) as typeof fetch;
@@ -153,6 +160,88 @@ test("searching an identifier opens that issue; an unknown one finds nothing", a
   );
   assert.equal(requests[0].variables.id, "ENG-7");
   assert.deepEqual(await client.search("ABC-1"), []);
+});
+
+test("an issue's details ask for image links that work without a key; an agent's don't", async () => {
+  const { request, requests } = fakeFetch(
+    { body: { data: { issue: detail() } } },
+    { body: { data: { issue: detail() } } },
+  );
+  const client = linear("k", request);
+  await client.detail("i1", 3600);
+  await client.detail("i1");
+  assert.equal(requests[0].headers["public-file-urls-expire-in"], "3600");
+  assert.equal(requests[1].headers["public-file-urls-expire-in"], undefined);
+});
+
+test("markdown from Linear becomes blocks and styled text, with only safe links", () => {
+  const blocks = parseMarkdown(
+    [
+      "## Steps",
+      "Open **the _login_ page** at https://x.dev/login, then `npm test`.",
+      "",
+      "- one",
+      "  - [x] nested done",
+      "    more of it",
+      "1. [click](javascript:alert(1)) and [docs](https://x.dev)",
+      "",
+      "> quoted",
+      "```",
+      "a  b",
+      "```",
+      "![shot.png](https://uploads.linear.app/a.png)",
+      "---",
+      "snake_case_name \\*not em\\*",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    blocks.map((block) => block.kind),
+    ["heading", "paragraph", "item", "item", "item", "quote", "code", "image", "rule", "paragraph"],
+  );
+  assert.deepEqual(blocks[1], {
+    kind: "paragraph",
+    spans: [
+      { text: "Open " },
+      { text: "the ", bold: true },
+      { text: "login", bold: true, italic: true },
+      { text: " page", bold: true },
+      { text: " at " },
+      { text: "https://x.dev/login", url: "https://x.dev/login" },
+      { text: ", then " },
+      { text: "npm test", code: true },
+      { text: "." },
+    ],
+  });
+  assert.deepEqual(blocks[3], {
+    kind: "item",
+    depth: 1,
+    marker: "•",
+    checked: true,
+    spans: [{ text: "nested done\nmore of it" }],
+  });
+  // the script link stays text
+  assert.deepEqual(blocks[4].kind === "item" && blocks[4].spans, [
+    { text: "click" },
+    { text: " and " },
+    { text: "docs", url: "https://x.dev" },
+  ]);
+  assert.deepEqual(blocks[6], { kind: "code", text: "a  b" });
+  assert.deepEqual(blocks[7], { kind: "image", alt: "shot.png", url: "https://uploads.linear.app/a.png" });
+  assert.deepEqual(
+    blocks[9].kind === "paragraph" && blocks[9].spans.map((span) => span.text).join(""),
+    "snake_case_name *not em*",
+  );
+});
+
+test("a comment goes to its issue, and one Linear didn't save says so", async () => {
+  const { request, requests } = fakeFetch(
+    { body: { data: { commentCreate: { success: true } } } },
+    { body: { data: { commentCreate: { success: false } } } },
+  );
+  const client = linear("k", request);
+  await client.comment("i1", "Looks good");
+  assert.deepEqual(requests[0].variables, { input: { issueId: "i1", body: "Looks good" } });
+  await assert.rejects(client.comment("i1", "again"), /didn't save it/);
 });
 
 test("a view's issues come from the view, with the viewer asked once", async () => {
