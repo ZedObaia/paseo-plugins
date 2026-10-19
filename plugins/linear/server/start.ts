@@ -1,8 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { PaseoAgentConfig, PaseoApi } from "@getpaseo/client";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { issueAttachment, type IssueAgent, type Link, type Scope } from "../shared/contracts";
 import { issueText, type IssueDetail } from "./linear";
+
+// From the plugin SDK: an installed plugin has no node_modules, so only Paseo's own modules resolve
+type PaseoApi = PluginHandlerContext["paseo"];
+type PaseoAgentConfig = Parameters<PaseoApi["agents"]["create"]>[0]["config"];
 
 /** The label an agent started from an issue carries: the issue's ID. */
 export const ISSUE_LABEL = "linear.issue";

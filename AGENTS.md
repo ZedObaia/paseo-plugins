@@ -8,7 +8,7 @@ Notes for agents working in this repository. How plugins are laid out, built and
 The directory is the [getpaseo/plugins](https://github.com/getpaseo/plugins) repository. A review
 bot there follows its `REVIEW.md` (read it from `main`) and the
 [publishing guide](https://paseo.sh/docs/plugins/publishing). Listed so far, under `zedobaia/`:
-Resources, Devices and Ports.
+Resources, Devices, Ports and Linear.
 
 ### Before submitting
 
@@ -33,7 +33,13 @@ Resources, Devices and Ports.
      phone 390x844 at 3x).
    - Lay the captures out with the headline and text in HTML at 1800x1125, screenshot them, and
      delete the daemon's home afterwards.
-5. The commit to submit is pushed to `main`.
+5. It installs from a copy without `node_modules`, the way Paseo builds a listed plugin: copy the
+   plugin folder to a temporary directory, delete `node_modules` there, and
+   `paseo plugin install <dir> --id <id>-check` (remove it afterwards). Only Paseo's own modules
+   resolve then (`@getpaseo/plugin`, `zod`, `react`, `react-native`, `@tanstack/react-query`), so
+   even a type-only import from anything else, like `@getpaseo/client`, fails the build: derive
+   such types from `@getpaseo/plugin/server` instead. Linear 0.1.0 was listed broken this way.
+6. The commit to submit is pushed to `main`.
 
 ### Submitting
 
@@ -58,3 +64,6 @@ A link with the title and source filled in saves typing; the categories still ne
 - Updates aren't picked up by themselves: submit the form again with the new commit's folder URL,
   as Ports 0.2.0 did (issue #664). Bump the plugin's `package.json` version first.
 - Once a plugin is listed, the README can install it as `zedobaia/<id>` instead of from Git.
+- Switching a host from a local or Git install to the listed one: `paseo plugin remove <id>`
+  deletes `plugin-settings/<id>` under Paseo's home (`plugin-data` stays), so copy the settings
+  first and put them back after `paseo plugin add zedobaia/<id>`.

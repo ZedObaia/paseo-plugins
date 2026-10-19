@@ -1,6 +1,6 @@
 {
   "name": "paseo-plugin-linear",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Linear issues from several accounts, linked per project: boards, filters, and agents started from issues.",
   "license": "MIT",
   "repository": {
