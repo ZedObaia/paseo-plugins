@@ -8,6 +8,7 @@ Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 | [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                 |
 | [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing |
 | [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                         |
+| [Auto fetch](plugins/auto-fetch/OVERVIEW.md)                   | A new project's existing worktrees as workspaces, background fetching, and fast-forwarded local branches   |
 
 ## Install
 
@@ -18,12 +19,13 @@ paseo plugin add zedobaia/resources                                    # from th
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/devices
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/projects-everywhere
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/ports
+paseo plugin add git:ZedObaia/paseo-plugins:plugins/auto-fetch
 ```
 
 Each plugin runs on the daemon you install it into, so install Resources on every host you want to
 watch, Devices on the Mac (or Android SDK host) that runs your simulators, Projects everywhere on
-the hosts you use, and Ports on the hosts whose workspaces run servers. Update with
-`paseo plugin update <id>`.
+the hosts you use, Ports on the hosts whose workspaces run servers, and Auto fetch on the hosts
+whose worktrees you want in Paseo and kept fetched. Update with `paseo plugin update <id>`.
 
 ## Develop
 

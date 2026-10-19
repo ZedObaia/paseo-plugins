@@ -1,0 +1,9 @@
+{
+  "id": "auto-fetch",
+  "name": "Auto fetch",
+  "description": "Adds a new project's existing worktrees as workspaces, keeps every worktree's repository fetched, and fast-forwards local branches that fell behind.",
+  "icon": "assets/icon.png",
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}
