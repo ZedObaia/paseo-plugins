@@ -3,6 +3,7 @@
   "name": "Linear",
   "description": "Linear issues from several accounts, linked per project: boards, filters, and agents started from issues.",
   "icon": "assets/icon.png",
+  "media": ["assets/hero.png", "assets/app.png", "assets/link.png", "assets/work.png", "assets/phone.png"],
   "requirements": {
     "paseo": ">=0.11.4"
   }

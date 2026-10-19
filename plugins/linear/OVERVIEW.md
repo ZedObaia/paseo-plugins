@@ -5,9 +5,9 @@ The panel asks for a personal API key the first time, then for what this Paseo p
 the issues of one of your accounts, or as many of its teams, projects and saved views as you tick,
 on one board. It lists them as a board with a column per status in a workspace tab, and grouped by
 status in the Explorer or on a phone. Each Paseo project keeps its own link, covering all its
-workspaces and worktrees, so one can follow your work account and another a side project. **Change**
-next to the name changes what's ticked or unlinks it, and **Settings → Plugins → Linear → Projects**
-lists every project with its link, to link many at once.
+workspaces and worktrees, so one can follow your work account and another a side project.
+**Change**, under the name, changes what's ticked or unlinks it, and **Settings → Plugins → Linear →
+Projects** lists every project with its link, to link many at once.
 
 **Mine** keeps the issues assigned to you, **Done** adds completed and canceled ones, and the search
 box matches titles, descriptions and identifiers like `ENG-123`. The labels on the listed issues

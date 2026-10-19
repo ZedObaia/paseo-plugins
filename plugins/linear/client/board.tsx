@@ -336,33 +336,37 @@ export function Board({
       contentContainerStyle={{ padding: compact ? 12 : 16, gap: 12 }}
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon
-          name={scopes.length === 1 ? SCOPE_ICON[scopes[0].kind] : "Boxes"}
-          size={s.icon}
-          color={c.foregroundMuted}
-        />
-        <Text
-          style={{ color: c.foreground, fontSize: s.text + 1, fontWeight: "600", flexShrink: 1 }}
-          numberOfLines={1}
-        >
-          {scopes.map((scope) => scope.name).join(", ")}
-        </Text>
-        {accountLabel ? (
-          <Text style={{ color: c.foregroundMuted, fontSize: s.text }} numberOfLines={1}>
-            {accountLabel}
+      {/* the names get their own line, two if need be: a narrow Explorer cut them to a word */}
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Icon
+            name={scopes.length === 1 ? SCOPE_ICON[scopes[0].kind] : "Boxes"}
+            size={s.icon}
+            color={c.foregroundMuted}
+          />
+          <Text
+            style={{ color: c.foreground, fontSize: s.text + 1, fontWeight: "600", flex: 1 }}
+            numberOfLines={2}
+          >
+            {scopes.map((scope) => scope.name).join(", ")}
           </Text>
-        ) : null}
-        <Button theme={theme} compact={compact} variant="ghost" label="Change" onPress={changeScope} />
-        <View style={{ flex: 1 }} />
-        {query.isFetching ? <ActivityIndicator color={c.foregroundMuted} /> : null}
-        <IconButton
-          theme={theme}
-          compact={compact}
-          icon="RefreshCw"
-          label="Refresh"
-          onPress={() => void queryClient.invalidateQueries({ queryKey: keys.issues(hostId) })}
-        />
+          {query.isFetching ? <ActivityIndicator color={c.foregroundMuted} /> : null}
+          <IconButton
+            theme={theme}
+            compact={compact}
+            icon="RefreshCw"
+            label="Refresh"
+            onPress={() => void queryClient.invalidateQueries({ queryKey: keys.issues(hostId) })}
+          />
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingLeft: s.icon + 8 }}>
+          {accountLabel ? (
+            <Text style={{ color: c.foregroundMuted, fontSize: s.text }} numberOfLines={1}>
+              {accountLabel}
+            </Text>
+          ) : null}
+          <Button theme={theme} compact={compact} variant="ghost" label="Change" onPress={changeScope} />
+        </View>
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
         <Button
