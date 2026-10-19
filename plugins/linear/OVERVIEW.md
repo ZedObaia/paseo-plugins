@@ -75,11 +75,12 @@ only by the user running the daemon. Apps never get them back, only the workspac
 each connects as. A key does go into the MCP configuration of each new agent that gets its account's
 tools, to sign in to Linear's MCP server.
 
-The plugin talks to `api.linear.app`, and agents to `mcp.linear.app`, only once a key is set. To
-show an issue's images, **Details** asks Linear for links to them that work without a key for an
-hour: the app gets those links, never the key. An
-issue you send or start an agent on, and whatever agents read with Linear's tools, becomes part of
-their conversation, so it goes to the agent's model provider like anything else you send.
+The plugin talks to `api.linear.app`, and agents to `mcp.linear.app`, only once a key is set.
+**Details** shows an issue's images by loading them in the app straight from where they're stored;
+for the ones in Linear's own storage it asks Linear for links that work without a key for an hour,
+so the app never gets the key. An issue you send or start an agent on, and whatever agents read with
+Linear's tools, becomes part of their conversation, so it goes to the agent's model provider like
+anything else you send.
 
 Linear's logo comes from [Simple Icons](https://simpleicons.org) (CC0). Linear is a trademark of its
 owner; this plugin isn't made or endorsed by Linear.

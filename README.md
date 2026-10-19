@@ -9,7 +9,7 @@ Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 | [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing |
 | [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                         |
 | [Auto fetch](plugins/auto-fetch/OVERVIEW.md)                   | A new project's existing worktrees as workspaces, background fetching, and fast-forwarded local branches   |
-| [Linear](plugins/linear/OVERVIEW.md)                           | Linear issues from several accounts, a board per project, and agents started on issues with Linear's tools |
+| [Linear](plugins/linear/OVERVIEW.md)                           | Linear issues from several accounts: a board per project, issue details and comments, and agents on issues |
 
 ## Install
 
