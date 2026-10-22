@@ -1,7 +1,7 @@
 {
   "id": "linear",
   "name": "Linear",
-  "description": "Linear issues from several accounts, linked per project: boards, issue details and comments, and agents started from issues.",
+  "description": "Linear issues from several accounts, linked per project: boards, issue details and comments, and agents on issues, each chat showing its own.",
   "icon": "assets/icon.png",
   "media": ["assets/hero.png", "assets/app.png", "assets/link.png", "assets/work.png", "assets/phone.png"],
   "requirements": {
