@@ -1,11 +1,9 @@
 import { byWorkflow } from "../shared/board";
-import type { Issue, Scope, State } from "../shared/contracts";
+import { IDENTIFIER, type Issue, type Scope, type State } from "../shared/contracts";
 
 const ENDPOINT = "https://api.linear.app/graphql";
 /** One page; Linear allows 250, but labels inside each issue count toward its complexity limit. */
 const PAGE = 200;
-// team keys can start with a digit, like 3AF-38
-const IDENTIFIER = /^([A-Z0-9]+)-(\d+)$/i;
 
 const STATE_FIELDS = "id name type color position";
 const ISSUE_FIELDS = `
@@ -348,6 +346,32 @@ export function linear(apiKey: string, request: typeof fetch = fetch) {
         { input: { issueId, body } },
       );
       if (!data.commentCreate.success) throw new LinearError("Linear didn't save it");
+    },
+
+    /** The issues with these IDs that this account can see. */
+    async byIds(ids: string[]): Promise<Pick<IssueDetail, "id" | "identifier" | "title" | "url">[]> {
+      const found = [];
+      for (let start = 0; start < ids.length; start += PAGE) {
+        const data = await graphql<{
+          issues: { nodes: Pick<IssueDetail, "id" | "identifier" | "title" | "url">[] };
+        }>(
+          `
+            query ($ids: [ID!], $first: Int) {
+              issues(first: $first, filter: { id: { in: $ids } }) {
+                nodes {
+                  id
+                  identifier
+                  title
+                  url
+                }
+              }
+            }
+          `,
+          { ids: ids.slice(start, start + PAGE), first: PAGE },
+        );
+        found.push(...data.issues.nodes);
+      }
+      return found;
     },
 
     /** An identifier opens that issue; other text is Linear's full-text search. */

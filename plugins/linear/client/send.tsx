@@ -1,234 +1,225 @@
 import type { PluginButtonContentProps } from "@getpaseo/plugin/client";
-import { useAgent, usePaseo } from "@getpaseo/plugin/client";
+import { openExternalUrl, useAgent, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type TextInput as NativeTextInput } from "react-native";
-import { issueAttachment, issueAttachments, type SearchItem } from "../shared/contracts";
-import { errorMessage, useSearch } from "./data";
+import { chatIssueOf, issueAttachment, issueMessage, setChatRpc, type SearchItem } from "../shared/contracts";
+import type { ChatStore } from "./chats";
+import { errorMessage, useIssueNow } from "./data";
+import { fieldStyle, FOCUS_DELAY_MS, InputBar, IssueRow, IssueSearch } from "./search";
 
 const WIDTH = 380;
 // fixed, so the app places the popover right on its first measure, before results arrive
 const HEIGHT = 360;
 // the app pads plugin popovers by 12; the list runs edge to edge like its own pickers
 const HOST_PADDING = 12;
-const SEARCH_DELAY_MS = 250;
-// the app dismisses the keyboard as a popover opens, which would blur an input focused sooner
-const FOCUS_DELAY_MS = 200;
 
-/** Searching Linear and sending one issue to this agent, with a message if you like. */
-export function SendIssue({ theme, host, layout, close, ...props }: PluginButtonContentProps) {
-  const c = theme.colors;
-  const agentId = props.context === "agent" ? props.agentId : "";
-  const paseo = usePaseo();
-  const toast = useToast();
-  const status = useAgent(agentId, (agent) => agent.status);
-  const [draft, setDraft] = useState("");
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const [picked, setPicked] = useState<SearchItem | null>(null);
-  const [note, setNote] = useState("");
-  const [sending, setSending] = useState(false);
-  const input = useRef<NativeTextInput>(null);
-  const search = useSearch(host.id, query);
-  const issues = search.data ?? [];
-  const busy = status === "running" || status === "initializing";
+/**
+ * The pill's popover: the chat's issue, to send again as it is now or to change, else Linear's
+ * search to give the chat one, sending it with a message if you like.
+ */
+export function sendIssue(store: ChatStore) {
+  return function SendIssue({ theme, host, layout, close, ...props }: PluginButtonContentProps) {
+    const c = theme.colors;
+    const agentId = props.context === "agent" ? props.agentId : "";
+    const paseo = usePaseo();
+    const toast = useToast();
+    const setChat = useRpc(setChatRpc);
+    const status = useAgent(agentId, (agent) => agent.status);
+    const current = useSyncExternalStore(store.subscribe, () => store.get(agentId));
+    const [changing, setChanging] = useState(false);
+    const [draft, setDraft] = useState("");
+    const [picked, setPicked] = useState<SearchItem | null>(null);
+    const [note, setNote] = useState("");
+    const [pending, setPending] = useState(false);
+    const input = useRef<NativeTextInput>(null);
+    const searching = !current || changing;
+    // the chat's issue as Linear has it now: an identifier finds just that issue
+    const latest = useIssueNow(host.id, current?.identifier ?? "", !!current && !searching);
+    // only what Linear just answered: back from Change, the earlier answer stays until it refreshes
+    const fresh =
+      latest.isFetching || latest.isError
+        ? null
+        : (latest.data?.find((issue) => issue.id === current?.id) ?? null);
+    const shown: SearchItem | null =
+      picked ?? (current && !searching ? (fresh ?? { ...current, text: "", resourceType: "issue" }) : null);
+    const isCurrent = !!shown && shown.id === current?.id;
+    const busy = status === "running" || status === "initializing";
+    const view = shown ? `issue ${shown.id}` : "search";
 
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(draft), SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [draft]);
-  useEffect(() => setActive(0), [query]);
-  useEffect(() => {
-    const timer = setTimeout(() => input.current?.focus(), FOCUS_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [picked]);
+    useEffect(() => {
+      if (!shown) return;
+      const timer = setTimeout(() => input.current?.focus(), FOCUS_DELAY_MS);
+      return () => clearTimeout(timer);
+    }, [view]);
 
-  async function send() {
-    if (!picked || sending) return;
-    setSending(true);
-    try {
-      await paseo.agents.ref(agentId).send(note.trim() || `${picked.identifier}: ${picked.title}`, {
-        attachments: [issueAttachment(picked)],
-        ...(busy ? { activeTurnBehavior: "steer" as const } : {}),
-      });
-      close();
-    } catch (error) {
-      toast.error(`Couldn't send ${picked.identifier}: ${errorMessage(error)}`);
-      setSending(false);
+    /** Makes the issue the chat's, or detaches it with null, and closes. */
+    async function give(issue: SearchItem | null, sent: boolean) {
+      setPending(true);
+      try {
+        const { chats } = await setChat({ agentId, issue: issue && chatIssueOf(issue) });
+        store.changed(chats);
+        close();
+      } catch (error) {
+        if (sent) {
+          toast.error(
+            `Sent ${issue?.identifier}, but couldn't make it this chat's issue: ${errorMessage(error)}`,
+          );
+          close();
+        } else {
+          toast.error(`Couldn't change this chat's issue: ${errorMessage(error)}`);
+          setPending(false);
+        }
+      }
     }
-  }
 
-  const field = {
-    flex: 1,
-    paddingVertical: 12,
-    color: c.foreground,
-    fontSize: 14,
-    outlineWidth: 0,
-  } as const;
-  const header = (icon: string, children: ReactNode) => (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8,
-        paddingHorizontal: 12,
-        backgroundColor: c.surface1,
-        borderBottomWidth: 1,
-        borderBottomColor: c.border,
-      }}
-    >
-      <Icon name={icon} size={16} color={c.foregroundMuted} />
-      {children}
-    </View>
-  );
-  const row = (issue: SearchItem, highlighted: boolean) => (
-    <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
-      {/* the title gives way first, so the status never shrinks to a letter */}
-      <Text style={{ color: c.foreground, fontSize: 14, flexShrink: 1, minWidth: 0 }} numberOfLines={1}>
-        {issue.identifier} {issue.title}
-      </Text>
-      {issue.subtitle ? (
-        <Text
-          style={{
-            color: highlighted ? c.foreground : c.foregroundMuted,
-            fontSize: 12,
-            flexShrink: 0,
-            maxWidth: "45%",
-          }}
-          numberOfLines={1}
-        >
-          {issue.subtitle}
-        </Text>
-      ) : null}
-    </View>
-  );
-  const root = {
-    // compact layouts show popovers as a full-width sheet
-    width: layout.compact ? ("100%" as const) : WIDTH,
-    height: HEIGHT,
-    margin: -HOST_PADDING,
-    borderRadius: 8,
-    overflow: "hidden" as const,
-    backgroundColor: c.surface0,
-  };
-  const note12 = { paddingHorizontal: 12, paddingVertical: 8, color: c.foregroundMuted, fontSize: 13 };
+    async function send() {
+      if (!shown?.text || pending) return;
+      setPending(true);
+      try {
+        const message = issueMessage(shown.identifier, { again: isCurrent, note });
+        await paseo.agents.ref(agentId).send(message, {
+          attachments: [issueAttachment(shown)],
+          ...(busy ? { activeTurnBehavior: "steer" as const } : {}),
+        });
+      } catch (error) {
+        toast.error(`Couldn't send ${shown.identifier}: ${errorMessage(error)}`);
+        setPending(false);
+        return;
+      }
+      if (isCurrent) close();
+      else await give(shown, true);
+    }
 
-  if (picked)
+    const action = (
+      label: string,
+      onPress: () => void,
+      options: { primary?: boolean; disabled?: boolean; accessibilityLabel?: string } = {},
+    ) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={options.accessibilityLabel ?? label}
+        accessibilityState={{ disabled: options.disabled }}
+        disabled={options.disabled}
+        onPress={onPress}
+        style={{
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 6,
+          backgroundColor: options.primary ? c.foreground : "transparent",
+          opacity: options.disabled ? 0.55 : 1,
+        }}
+      >
+        <Text style={{ color: options.primary ? c.surface0 : c.foreground, fontSize: 14 }}>{label}</Text>
+      </Pressable>
+    );
+    const root = {
+      // compact layouts show popovers as a full-width sheet
+      width: layout.compact ? ("100%" as const) : WIDTH,
+      height: HEIGHT,
+      margin: -HOST_PADDING,
+      borderRadius: 8,
+      overflow: "hidden" as const,
+      backgroundColor: c.surface0,
+    };
+    const note12 = { paddingHorizontal: 12, paddingVertical: 8, color: c.foregroundMuted, fontSize: 13 };
+
+    if (shown) {
+      const text =
+        shown.text ||
+        (latest.error
+          ? errorMessage(latest.error)
+          : latest.isFetching
+            ? "Loading the issue from Linear…"
+            : "None of your Linear accounts can see this issue anymore.");
+      return (
+        <View style={root}>
+          <InputBar theme={theme} icon="MessageSquare">
+            <TextInput
+              ref={input}
+              value={note}
+              onChangeText={setNote}
+              onSubmitEditing={send}
+              placeholder="Add a message (optional)"
+              placeholderTextColor={c.foregroundMuted}
+              accessibilityLabel="Message to send with the issue"
+              style={fieldStyle(theme)}
+            />
+          </InputBar>
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.surface1 }}>
+            <IssueRow theme={theme} issue={shown} highlighted />
+          </View>
+          {busy ? (
+            <Text style={note12}>The agent is working: this adds the issue to its current turn.</Text>
+          ) : null}
+          <ScrollView style={{ flex: 1, minHeight: 0 }}>
+            <Text style={{ ...note12, fontSize: 12, lineHeight: 18 }} selectable>
+              {text}
+            </Text>
+          </ScrollView>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              padding: 8,
+              borderTopWidth: 1,
+              borderTopColor: c.border,
+            }}
+          >
+            {picked ? (
+              action("Back", () => setPicked(null))
+            ) : (
+              <>
+                {action("Detach", () => void give(null, false), {
+                  disabled: pending,
+                  accessibilityLabel: `Detach ${shown.identifier} from this chat`,
+                })}
+                {action("Change", () => setChanging(true), {
+                  accessibilityLabel: "Give this chat another issue",
+                })}
+              </>
+            )}
+            <View style={{ flex: 1 }} />
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Open ${shown.identifier} in Linear`}
+              onPress={() =>
+                void openExternalUrl(shown.url).catch((error) => toast.error(errorMessage(error)))
+              }
+              style={{ padding: 6 }}
+            >
+              <Icon name="ExternalLink" size={16} color={c.foregroundMuted} />
+            </Pressable>
+            {isCurrent
+              ? null
+              : action("Attach only", () => void give(shown, false), {
+                  disabled: pending,
+                  accessibilityLabel: `Make ${shown.identifier} this chat's issue without sending it`,
+                })}
+            {action(busy ? "Send and steer" : isCurrent ? "Send again" : "Send", send, {
+              primary: true,
+              disabled: pending || !shown.text,
+              accessibilityLabel: `Send ${shown.identifier} to the agent`,
+            })}
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={root}>
-        {header(
-          "MessageSquare",
-          <TextInput
-            ref={input}
-            value={note}
-            onChangeText={setNote}
-            onSubmitEditing={send}
-            placeholder="Add a message (optional)"
-            placeholderTextColor={c.foregroundMuted}
-            accessibilityLabel="Message to send with the issue"
-            style={field}
-          />,
-        )}
-        <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: c.surface1 }}>
-          {row(picked, true)}
-        </View>
-        {busy ? (
-          <Text style={note12}>The agent is working: this adds the issue to its current turn.</Text>
-        ) : null}
-        <ScrollView style={{ flex: 1, minHeight: 0 }}>
-          <Text style={{ ...note12, fontSize: 12, lineHeight: 18 }} selectable>
-            {picked.text}
-          </Text>
-        </ScrollView>
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            gap: 8,
-            padding: 8,
-            borderTopWidth: 1,
-            borderTopColor: c.border,
-          }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setPicked(null)}
-            style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
-          >
-            <Text style={{ color: c.foreground, fontSize: 14 }}>Back</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Send ${picked.identifier} to the agent`}
-            disabled={sending}
-            onPress={send}
-            style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 6,
-              backgroundColor: c.foreground,
-              opacity: sending ? 0.55 : 1,
-            }}
-          >
-            <Text style={{ color: c.surface0, fontSize: 14 }}>{busy ? "Send and steer" : "Send"}</Text>
-          </Pressable>
-        </View>
+        <IssueSearch
+          theme={theme}
+          hostId={host.id}
+          draft={draft}
+          setDraft={setDraft}
+          pick={setPicked}
+          back={
+            current ? { label: "Back to this chat's issue", onPress: () => setChanging(false) } : undefined
+          }
+        />
       </View>
     );
-
-  return (
-    <View style={root}>
-      {header(
-        "Search",
-        <TextInput
-          ref={input}
-          value={draft}
-          onChangeText={setDraft}
-          onSubmitEditing={() => issues[active] && setPicked(issues[active])}
-          onKeyPress={(event) => {
-            // the arrows move the highlight on web, where there's a keyboard
-            const key = event.nativeEvent.key;
-            if (key !== "ArrowDown" && key !== "ArrowUp") return;
-            event.preventDefault();
-            const step = key === "ArrowDown" ? 1 : -1;
-            setActive((i) => Math.min(Math.max(i + step, 0), Math.max(issues.length - 1, 0)));
-          }}
-          placeholder={issueAttachments.searchPlaceholder}
-          placeholderTextColor={c.foregroundMuted}
-          accessibilityLabel="Search Linear issues"
-          style={field}
-        />,
-      )}
-      <ScrollView
-        style={{ flex: 1, minHeight: 0 }}
-        contentContainerStyle={{ paddingVertical: 4 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {search.error ? (
-          <Text style={{ ...note12, color: c.statusDanger }}>{errorMessage(search.error)}</Text>
-        ) : null}
-        {!search.error && !issues.length ? (
-          <Text style={note12}>{search.isFetching ? "Searching…" : "No issues found."}</Text>
-        ) : null}
-        {issues.map((issue, index) => (
-          <Pressable
-            key={issue.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${issue.identifier} ${issue.title}`}
-            onPress={() => setPicked(issue)}
-            onHoverIn={() => setActive(index)}
-            style={{
-              minHeight: 36,
-              justifyContent: "center",
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              backgroundColor: index === active ? c.surface1 : "transparent",
-            }}
-          >
-            {row(issue, index === active)}
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
+  };
 }

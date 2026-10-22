@@ -1,17 +1,24 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { issueAttachment, type IssueAgent, type Link, type Scope } from "../shared/contracts";
+import {
+  ISSUE_LABEL,
+  issueAttachment,
+  issueMessage,
+  type ChatIssue,
+  type IssueAgent,
+  type Link,
+  type Scope,
+} from "../shared/contracts";
+import { issueIdOf, type StoredChats } from "./chats";
 import { issueText, type IssueDetail } from "./linear";
 
 // From the plugin SDK: an installed plugin has no node_modules, so only Paseo's own modules resolve
 type PaseoApi = PluginHandlerContext["paseo"];
 type PaseoAgentConfig = Parameters<PaseoApi["agents"]["create"]>[0]["config"];
 
-/** The label an agent started from an issue carries: the issue's ID. */
-export const ISSUE_LABEL = "linear.issue";
 const PARENT_LABEL = "paseo.parent-agent-id";
-const MAX_TITLE = 200;
+export const MAX_TITLE = 200;
 
 interface RecentAgent {
   provider: string;
@@ -60,15 +67,33 @@ export function branchFor(issue: Pick<IssueDetail, "branchName" | "identifier">)
 const describeScope = (scope: Scope) => (scope.kind === "all" ? scope.name : `${scope.kind} "${scope.name}"`);
 
 /** The first message: what to do, with the issue attached the way the "+" menu attaches it. */
-export function firstMessage(issue: IssueDetail, linked: Link | null, tools: boolean) {
+export function firstMessage(issue: IssueDetail, linked: Link | null) {
   const prompt = [
-    `Work on Linear issue ${issue.identifier}, attached.`,
+    issueMessage(issue.identifier, { again: false, note: "" }),
     linked ? `This project is linked to Linear: ${linked.map(describeScope).join(", ")}.` : "",
-    tools ? "Linear's tools are available to you as the `linear` MCP server." : "",
   ]
     .filter(Boolean)
     .join("\n");
   return { prompt, attachments: [issueAttachment({ ...issue, text: issueText(issue) })] };
+}
+
+/**
+ * What agents that get Linear's tools are told: an issue reaches them as an attachment, and the
+ * tools fill in what it leaves out.
+ */
+export function linearInstructions(servers: string[], readOnly: boolean): string {
+  const named =
+    servers.length === 1
+      ? `the \`${servers[0]}\` MCP server`
+      : `the ${servers.map((name) => `\`${name}\``).join(", ")} MCP servers, one per Linear workspace`;
+  return [
+    `Linear: you have Linear's tools, as ${named}${readOnly ? ", read-only" : ""}.`,
+    'A Linear issue reaches you as an attachment that starts with "Linear issue <identifier>: <title>", with its description and latest comments.',
+    "Unless the message says otherwise, that issue is your task: before you start, use Linear's tools for anything the attachment leaves out, like sub-issues, related issues and older comments.",
+    readOnly ? "" : "Change the issue in Linear, like its status or comments, only when you're asked to.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 const git = promisify(execFile);
@@ -97,8 +122,12 @@ export async function projectAt(paseo: PaseoApi, cwd: string): Promise<string | 
   return holding[0]?.projectId ?? null;
 }
 
-/** Agents started from these issues, newest first, by issue ID. */
-export async function agentsFor(paseo: PaseoApi, issueIds: string[]): Promise<Record<string, IssueAgent[]>> {
+/** Agents working on these issues, newest first, by issue ID. */
+export async function agentsFor(
+  paseo: PaseoApi,
+  issueIds: string[],
+  chats: StoredChats,
+): Promise<Record<string, IssueAgent[]>> {
   const wanted = new Set(issueIds);
   const { entries } = await paseo.agents.list({
     sort: [{ key: "updated_at", direction: "desc" }],
@@ -106,7 +135,7 @@ export async function agentsFor(paseo: PaseoApi, issueIds: string[]): Promise<Re
   });
   const found: Record<string, IssueAgent[]> = {};
   for (const { agent } of entries) {
-    const issueId = agent.labels[ISSUE_LABEL];
+    const issueId = issueIdOf(agent, chats);
     if (!issueId || !wanted.has(issueId)) continue;
     (found[issueId] ??= []).push({ id: agent.id, title: agent.title, status: agent.status });
   }
@@ -114,9 +143,63 @@ export async function agentsFor(paseo: PaseoApi, issueIds: string[]): Promise<Re
 }
 
 /**
+ * The worktree for an issue: on its Linear branch, a new one off the base or the existing one an
+ * earlier worktree left behind.
+ */
+export async function issueBranch(
+  root: string,
+  issue: Pick<IssueDetail, "branchName" | "identifier">,
+): Promise<{ action: "checkout"; refName: string } | { action: "branch-off"; branchName: string }> {
+  const branch = branchFor(issue);
+  return (await branchExists(root, branch))
+    ? { action: "checkout", refName: branch }
+    : { action: "branch-off", branchName: branch };
+}
+
+/** The first Linear issue among a message's attachments, as the "+" menu and the pill attach it. */
+export function attachedIssue(
+  attachments: unknown,
+): { id: string; identifier: string; title: string } | null {
+  if (!Array.isArray(attachments)) return null;
+  for (const attachment of attachments) {
+    const resource = (attachment as { externalResource?: Record<string, unknown> } | null)?.externalResource;
+    if (resource?.provider !== "linear" || resource.resourceType !== "issue") continue;
+    const { id, identifier, title } = resource;
+    if (typeof id === "string" && typeof identifier === "string")
+      return { id, identifier, title: typeof title === "string" ? title : "" };
+  }
+  return null;
+}
+
+// the first agent follows its worktree within seconds; anything older was never made
+const FIRST_AGENT_WAIT_MS = 2 * 60_000;
+
+/**
+ * Issues for the first agents of new worktrees, until they show up. A worktree's folder is named
+ * after its slug, which no other worktree shares, so its agent runs in or under that folder.
+ */
+export class FirstAgents {
+  private waiting = new Map<string, { chat: ChatIssue; until: number }>();
+
+  expect(slug: string | undefined, chat: ChatIssue, now = Date.now()) {
+    if (slug) this.waiting.set(slug, { chat, until: now + FIRST_AGENT_WAIT_MS });
+  }
+
+  /** The issue for an agent that just started here, once. */
+  take(cwd: string, now = Date.now()): ChatIssue | null {
+    for (const [slug, { until }] of this.waiting) if (until <= now) this.waiting.delete(slug);
+    // a Windows path too
+    const slug = cwd.split(/[\\/]/).find((part) => this.waiting.has(part));
+    if (!slug) return null;
+    const { chat } = this.waiting.get(slug)!;
+    this.waiting.delete(slug);
+    return chat;
+  }
+}
+
+/**
  * Starts an agent with the issue as its first message, with the model of your latest chat. In a
- * new worktree it works on the issue's branch: a new one off the default branch, or the existing
- * branch from an earlier worktree.
+ * new worktree it works on the issue's branch.
  */
 export async function startAgent(
   paseo: PaseoApi,
@@ -125,7 +208,6 @@ export async function startAgent(
     issue: IssueDetail;
     where: "worktree" | "here";
     linked: (projectId: string) => Link | null;
-    tools: boolean;
   },
 ): Promise<{ agentId: string; workspaceId: string }> {
   const { issue } = input;
@@ -143,7 +225,7 @@ export async function startAgent(
       inProject,
     ),
     title: `${issue.identifier} ${issue.title}`.slice(0, MAX_TITLE),
-    ...firstMessage(issue, input.linked(workspace.projectId), input.tools),
+    ...firstMessage(issue, input.linked(workspace.projectId)),
     labels: { [ISSUE_LABEL]: issue.id },
   };
 
@@ -151,14 +233,12 @@ export async function startAgent(
     const agent = await paseo.workspaces.ref(workspace).agents.create(options);
     return { agentId: agent.id, workspaceId: workspace.id };
   }
-  const branch = branchFor(issue);
-  const existing = await branchExists(workspace.projectRootPath, branch);
   const created = await paseo.workspaces.create({
     source: {
       kind: "worktree",
       projectId: workspace.projectId,
       cwd: workspace.projectRootPath,
-      ...(existing ? { action: "checkout", refName: branch } : { action: "branch-off", branchName: branch }),
+      ...(await issueBranch(workspace.projectRootPath, issue)),
     },
   });
   const agent = await created.agents.create(options);

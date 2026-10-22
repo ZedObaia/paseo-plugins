@@ -2,6 +2,8 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { issueAttachments } from "./shared/contracts";
 import { linearPanel } from "./client/panel";
 import { headerButtons, sendPills } from "./client/buttons";
+import { chatStore } from "./client/chats";
+import { linearCommands } from "./client/commands";
 import { projectSettings } from "./client/projects";
 import { AccountSettings } from "./client/settings";
 
@@ -46,7 +48,10 @@ export default function contribute(client: PluginClientContext) {
       Component: projectSettings(client),
     }),
   ];
-  const removePills = sendPills(client);
+  // each chat's issue: what the pills show, and what the commands and pills change
+  const store = chatStore();
+  removers.push(...linearCommands(client, store));
+  const removePills = sendPills(client, store);
   const removeHeaderButtons = headerButtons(client);
   const removeAttachments = client.addAttachmentSource(issueAttachments);
   return async () => {

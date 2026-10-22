@@ -1,7 +1,4 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { jsonFile } from "./files";
 
 /** A Linear account you added: one personal API key, for one Linear workspace. */
 export interface SavedAccount {
@@ -17,42 +14,18 @@ export interface SavedAccount {
 
 export const ENVIRONMENT_ID = "environment";
 
-const DIR = () => join(process.env.PASEO_HOME ?? join(homedir(), ".paseo"), "plugin-data", "linear");
-// A file only the daemon's user can read: apps never get the keys back, only who they connect as.
-const FILE = () => join(DIR(), "accounts.json");
+// apps never get the keys back, only who they connect as
+const file = jsonFile<SavedAccount[]>("accounts.json", () => []);
 
-export async function savedAccounts(): Promise<SavedAccount[]> {
-  const text = await readFile(FILE(), "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "[]";
-    throw error;
-  });
-  return JSON.parse(text) as SavedAccount[];
-}
-
-async function write(accounts: SavedAccount[]): Promise<void> {
-  const file = FILE();
-  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-  await chmod(dirname(file), 0o700);
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(accounts, null, 2), { mode: 0o600 });
-  await rename(temporary, file);
-}
-
-// one change at a time: two at once would each write the list they read, dropping the other's
-let changing: Promise<unknown> = Promise.resolve();
-function change(edit: (accounts: SavedAccount[]) => SavedAccount[]): Promise<void> {
-  const next = changing.then(async () => write(edit(await savedAccounts())));
-  changing = next.catch(() => {});
-  return next;
-}
+export const savedAccounts = file.read;
 
 /** Adds an account, or replaces its key. */
-export function saveAccount(account: SavedAccount): Promise<void> {
-  return change((accounts) => [...accounts.filter((saved) => saved.id !== account.id), account]);
+export async function saveAccount(account: SavedAccount): Promise<void> {
+  await file.change((accounts) => [...accounts.filter((saved) => saved.id !== account.id), account]);
 }
 
-export function removeAccount(id: string): Promise<void> {
-  return change((accounts) => accounts.filter((saved) => saved.id !== id));
+export async function removeAccount(id: string): Promise<void> {
+  await file.change((accounts) => accounts.filter((saved) => saved.id !== id));
 }
 
 /** Every account's key: the saved ones, then LINEAR_API_KEY from the daemon's environment. */

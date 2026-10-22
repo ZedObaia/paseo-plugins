@@ -89,13 +89,26 @@ export function useIssues(hostId: string, scopes: Link, filters: Filters) {
 }
 
 /** Linear's search; answers seen before show at once and refresh behind. */
-export function useSearch(hostId: string, query: string) {
+export function useSearch(hostId: string, query: string, enabled = true) {
   const search = useRpc(searchRpc);
   return useQuery({
     queryKey: [...keys.all(hostId), "search", query.trim().toLowerCase()],
     queryFn: async () => (await search({ query })).items,
     placeholderData: (previous) => previous,
     staleTime: 30_000,
+    enabled,
+  });
+}
+
+/** An issue fresh from Linear each time it's shown, never from the cache: what "Send again" sends. */
+export function useIssueNow(hostId: string, identifier: string, enabled: boolean) {
+  const search = useRpc(searchRpc);
+  return useQuery({
+    queryKey: [...keys.all(hostId), "now", identifier.toLowerCase()],
+    queryFn: async () => (await search({ query: identifier })).items,
+    gcTime: 0,
+    staleTime: 0,
+    enabled,
   });
 }
 

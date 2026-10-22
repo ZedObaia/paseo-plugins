@@ -42,7 +42,10 @@ const issue = z.object({
 });
 export type Issue = z.infer<typeof issue>;
 
-/** An agent started from an issue, found by the label it was started with. */
+/** The label an agent started from an issue carries: the issue's ID. */
+export const ISSUE_LABEL = "linear.issue";
+
+/** An agent working on an issue: started from it, or given it from its pill. */
 const agent = z.object({
   id: z.string(),
   title: z.string().nullable(),
@@ -101,7 +104,7 @@ export const issuesRpc = defineRpc({
     issues: z.array(issue),
     /** There are more than the ones listed. */
     more: z.boolean(),
-    /** Agents started from each issue, by issue ID. */
+    /** Agents working on each issue, by issue ID. */
     agents: z.record(z.string(), z.array(agent)),
   }),
 });
@@ -156,22 +159,33 @@ export const startRpc = defineRpc({
   output: z.object({ agentId: z.string(), workspaceId: z.string() }),
 });
 
+const searchItem = z.object({
+  id: z.string(),
+  identifier: z.string(),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  url: z.url(),
+  text: z.string(),
+  /** The account it was found in; the "+" menu's picker ignores it. */
+  accountId: z.string(),
+  resourceType: z.string(),
+});
+
+/** Every account's issues for a picker: an account that doesn't answer is left out. */
 export const searchRpc = defineRpc({
   name: "linear.search",
   input: z.object({ query: z.string() }),
-  output: z.object({
-    items: z.array(
-      z.object({
-        id: z.string(),
-        identifier: z.string(),
-        title: z.string(),
-        subtitle: z.string().optional(),
-        url: z.url(),
-        text: z.string(),
-        resourceType: z.string(),
-      }),
-    ),
-  }),
+  output: z.object({ items: z.array(searchItem) }),
+});
+
+/**
+ * The issues with an identifier, in every account, for the commands, which pick without asking:
+ * `complete` when every account answered, so none was left out.
+ */
+export const findRpc = defineRpc({
+  name: "linear.find",
+  input: z.object({ identifier: z.string().min(1) }),
+  output: z.object({ items: z.array(searchItem), complete: z.boolean() }),
 });
 
 export type SearchItem = z.infer<typeof searchRpc.output>["items"][number];
@@ -185,8 +199,24 @@ export const issueAttachments = defineAttachmentSource({
   search: searchRpc,
 });
 
+// team keys can start with a digit, like 3AF-38
+export const IDENTIFIER = /^([A-Z0-9]+)-(\d+)$/i;
+
+/**
+ * What a chat is told with an issue: your message, else a request to work on it with a nudge
+ * toward Linear's tools, worded for chats that may not have them, like Pi's or ones with tools off.
+ */
+export function issueMessage(identifier: string, options: { again: boolean; note: string }) {
+  const note = options.note.trim();
+  if (note) return note;
+  const ask = options.again
+    ? `Here's Linear issue ${identifier} again, as it is now: attached.`
+    : `Work on Linear issue ${identifier}, attached.`;
+  return `${ask}\n\nIf you have Linear's tools, use them for anything it leaves out, like sub-issues, related issues or older comments.`;
+}
+
 /** An issue as a message attachment, the way the "+" menu's Linear issue picker attaches it. */
-export const issueAttachment = (issue: Omit<SearchItem, "subtitle" | "resourceType">) => ({
+export const issueAttachment = (issue: Pick<SearchItem, "id" | "identifier" | "title" | "url" | "text">) => ({
   type: "text" as const,
   mimeType: "text/plain" as const,
   title: `${issue.identifier} ${issue.title}`,
@@ -200,6 +230,34 @@ export const issueAttachment = (issue: Omit<SearchItem, "subtitle" | "resourceTy
     title: issue.title,
     url: issue.url,
   },
+});
+
+/** The issue a chat works on, the one its pill shows. */
+const chatIssue = z.object({
+  accountId: z.string().min(1),
+  id: z.string().min(1),
+  identifier: z.string().min(1),
+  title: z.string(),
+  url: z.string(),
+});
+export type ChatIssue = z.infer<typeof chatIssue>;
+export const chatIssueOf = ({ accountId, id, identifier, title, url }: SearchItem): ChatIssue => ({
+  accountId,
+  id,
+  identifier,
+  title,
+  url,
+});
+const chats = z.object({ chats: z.record(z.string(), chatIssue) });
+
+/** Every chat's issue, by agent ID: the one given from its pill, else the one it was started from. */
+export const chatsRpc = defineRpc({ name: "linear.chats", input: z.object({}), output: chats });
+
+/** Gives a chat its issue, or detaches it with null; answers with every chat's. */
+export const setChatRpc = defineRpc({
+  name: "linear.chats.set",
+  input: z.object({ agentId: z.string().min(1), issue: chatIssue.nullable() }),
+  output: chats,
 });
 
 const agentTools = z.enum(["off", "read", "write"]);

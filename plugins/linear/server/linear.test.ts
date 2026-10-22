@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { columns, labelsOf, toggle } from "../shared/board";
-import { linearSettings, type Issue, type Scope, type State } from "../shared/contracts";
+import { issueMessage, linearSettings, type Issue, type Scope, type State } from "../shared/contracts";
 import contribute from "../index.server";
 import { accountKeys, removeAccount, saveAccount, savedAccounts, type SavedAccount } from "./accounts";
+import { storedChats } from "./chats";
 import { issueFilter, issueText, linear, toIssue, type IssueDetail } from "./linear";
-import { branchFor, pickConfig } from "./start";
+import { branchFor, FirstAgents, pickConfig } from "./start";
+import { matchIssue, parseArgs } from "../client/commands";
 import { parseMarkdown } from "../client/markdown";
 
 const state = (name: string, type: string, position = 0): State => ({
@@ -408,7 +411,8 @@ test("agents get the linked account's Linear tools, every account's when not lin
       subscribe: (next: (state: unknown) => void) => ((listener = next), () => {}),
     }),
     handle: () => {},
-    before: (_name: string, handler: typeof hook) => ((hook = handler), () => {}),
+    on: () => () => {},
+    before: (name: string, handler: typeof hook) => (name === "agent.create" && (hook = handler), () => {}),
   } as never);
   await new Promise((resolve) => setImmediate(resolve));
   const paseo = {
@@ -447,6 +451,8 @@ test("agents get the linked account's Linear tools, every account's when not lin
   });
   assert.equal((await create("/repo"))!.config.mcpServers.linear.url, "https://mcp.linear.app/mcp");
   assert.equal(await create("/repo", { internal: true }), undefined);
+  // Paseo won't start a provider without MCP support that's given servers
+  assert.equal(await create("/repo", { provider: "pi" }), undefined);
   assert.equal(await create("/repo", { mcpServers: { linear: {} } }), undefined);
   listener!(ready("read"));
   assert.equal((await create("/repo"))!.config.mcpServers.linear.url, "https://mcp.linear.app/mcp/readonly");
@@ -525,7 +531,8 @@ function agentHook(read: () => Promise<unknown>, list: (options?: never) => Prom
   contribute({
     registerSettings: () => ({ read, subscribe: () => () => {} }),
     handle: () => {},
-    before: (_name: string, handler: typeof hook) => ((hook = handler), () => {}),
+    on: () => () => {},
+    before: (name: string, handler: typeof hook) => (name === "agent.create" && (hook = handler), () => {}),
   } as never);
   const paseo = { workspaces: { list } };
   return async (cwd: string) => {
@@ -611,4 +618,234 @@ test("an agent's project is found on any page of workspaces", async () => {
     async (options?: { page?: { cursor?: string } }) => pages[options?.page?.cursor ?? "first"],
   );
   assert.deepEqual(await create("/repo/src"), { linear: "Bearer lin_api_side" });
+});
+
+test("agents with Linear's tools are told how issues reach them, after any instructions they had", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-told-"));
+  await saveAccount(account("u-acme", "acme"));
+  await saveAccount(account("u-side", "side"));
+  let hook: ((input: { request: unknown }, context: unknown) => Promise<unknown>) | undefined;
+  let listener: ((state: unknown) => void) | undefined;
+  contribute({
+    registerSettings: () => ({
+      read: async () => settingsOf({}),
+      subscribe: (next: (state: unknown) => void) => ((listener = next), () => {}),
+    }),
+    handle: () => {},
+    on: () => () => {},
+    before: (name: string, handler: typeof hook) => (name === "agent.create" && (hook = handler), () => {}),
+  } as never);
+  await new Promise((resolve) => setImmediate(resolve));
+  const paseo = { workspaces: { list: inRepo } };
+  const told = async (extra = {}) =>
+    (
+      (await hook!({ request: { config: { provider: "claude", cwd: "/repo", ...extra } } }, { paseo })) as {
+        config: { systemPrompt: string };
+      }
+    ).config.systemPrompt;
+
+  const both = await told({ systemPrompt: "Be brief." });
+  assert.match(
+    both,
+    /^Be brief\.\n\nLinear: you have Linear's tools, as the `linear-acme`, `linear-side` MCP servers/,
+  );
+  assert.match(both, /only when you're asked to\.$/);
+  listener!(settingsOf({ prj: [{ accountId: "u-side", kind: "team", id: "T", name: "T" }] }, "read"));
+  const readOnly = await told();
+  assert.match(readOnly, /^Linear: you have Linear's tools, as the `linear` MCP server, read-only\./);
+  assert.doesNotMatch(readOnly, /asked to/);
+});
+
+test("Paseo's New workspace with an issue attached: a new worktree takes its branch, the chat its issue", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-new-workspace-"));
+  await saveAccount(account("u-acme", "acme"));
+  const repo = mkdtempSync(join(tmpdir(), "linear-repo-"));
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  git("init", "-q", "-b", "main");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  let hook: ((input: { request: unknown }, context: unknown) => Promise<unknown>) | undefined;
+  let created: ((event: { agent: { id: string; cwd: string } }) => Promise<void>) | undefined;
+  contribute({
+    registerSettings: () => ({ read: async () => settingsOf({}), subscribe: () => () => {} }),
+    handle: () => {},
+    on: (name: string, handler: typeof created) => (
+      name === "agent.created" && (created = handler),
+      () => {}
+    ),
+    before: (name: string, handler: typeof hook) => (
+      name === "workspace.create" && (hook = handler),
+      () => {}
+    ),
+  } as never);
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ data: { issue: detail({ id: "i7" }) } }))) as typeof fetch;
+  const linearIssue = {
+    type: "text",
+    mimeType: "text/plain",
+    title: "ENG-7 Fix login",
+    text: "Linear issue ENG-7: Fix login",
+    externalResource: {
+      provider: "linear",
+      resourceType: "issue",
+      id: "i7",
+      identifier: "ENG-7",
+      title: "Fix login",
+    },
+  };
+  const create = (source: Record<string, unknown>, attachments: unknown[] = [linearIssue]) =>
+    hook!(
+      {
+        request: {
+          source,
+          agent: { config: { provider: "claude", cwd: repo }, labels: {}, attachments },
+          firstAgentContext: { prompt: "Let's go", attachments },
+        },
+      },
+      {},
+    ) as Promise<{ source: Record<string, unknown>; title?: string; firstAgentContext: unknown } | undefined>;
+  const eng7 = { accountId: "u-acme", id: "i7", identifier: "ENG-7", title: "Fix login", url: detail().url };
+  try {
+    const worktree = {
+      kind: "worktree",
+      cwd: repo,
+      action: "branch-off",
+      baseBranch: "main",
+      worktreeSlug: "brave-otter",
+    };
+    const made = await create(worktree);
+    assert.deepEqual(made!.source, { ...worktree, branchName: "zeyad/eng-7-fix-login" });
+    // Paseo would rename the branch from the first message: nothing to go on, and the issue's title
+    assert.deepEqual(made!.firstAgentContext, {});
+    assert.equal(made!.title, "ENG-7 Fix login");
+    // its first agent gets the issue, once: another agent elsewhere doesn't
+    await created!({ agent: { id: "elsewhere", cwd: "/home/sam/notes" } });
+    await created!({ agent: { id: "first", cwd: "/home/sam/.paseo/worktrees/1a2b/brave-otter" } });
+    await created!({ agent: { id: "second", cwd: "/home/sam/.paseo/worktrees/1a2b/brave-otter" } });
+    assert.deepEqual(await storedChats(), { first: eng7 });
+
+    // an earlier worktree left the branch behind: back on it
+    git("branch", "zeyad/eng-7-fix-login");
+    assert.deepEqual((await create(worktree))!.source, {
+      ...worktree,
+      action: "checkout",
+      refName: "zeyad/eng-7-fix-login",
+    });
+    // a branch you named or picked, or the project's folder, stays as it is, and so does its naming
+    for (const source of [
+      { ...worktree, branchName: "mine" },
+      { kind: "worktree", cwd: repo, action: "checkout", refName: "main" },
+      { kind: "directory", path: repo },
+    ])
+      assert.equal(await create(source), undefined);
+    // a Local workspace's agent can't be told apart from others in its folder
+    await created!({ agent: { id: "local", cwd: repo } });
+    assert.equal((await storedChats()).local, undefined);
+    assert.equal(await create(worktree, []), undefined);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a new worktree's first agent gets its issue, by the worktree's folder, once, for a couple of minutes", () => {
+  const chat = { accountId: "a", id: "i1", identifier: "ENG-1", title: "", url: "" };
+  const agents = new FirstAgents();
+  agents.expect("brave-otter", chat, 0);
+  agents.expect("calm-heron", chat, 0);
+  agents.expect(undefined, chat, 0);
+  assert.equal(agents.take("/home/sam/brave-otters", 1), null);
+  assert.equal(agents.take("/home/sam/.paseo/worktrees/1a2b/brave-otter/app", 1), chat);
+  assert.equal(agents.take("/home/sam/.paseo/worktrees/1a2b/brave-otter", 1), null);
+  assert.equal(agents.take("C:\\Users\\sam\\.paseo\\worktrees\\1a2b\\calm-heron", 1), chat);
+  agents.expect("brave-otter", chat, 0);
+  assert.equal(agents.take("/wt/brave-otter", 3 * 60_000), null);
+});
+
+test("a command's identifier must be one issue: two accounts each with one is for the picker", () => {
+  const item = (id: string, accountId: string) => ({
+    id,
+    identifier: "ENG-7",
+    title: "",
+    url: "https://linear.app",
+    text: "",
+    resourceType: "issue",
+    accountId,
+  });
+  assert.equal(matchIssue([item("i1", "a"), item("i1", "a")], "ENG-7", "pick it").id, "i1");
+  assert.throws(
+    () => matchIssue([item("i1", "a"), item("i2", "b")], "ENG-7", "pick it"),
+    /a ENG-7: pick it\.$/,
+  );
+  assert.throws(() => matchIssue([], "ENG-7", "pick it"), /None of your Linear accounts has ENG-7/);
+});
+
+test("an issue sent to a chat asks for work on it, or says it's the same one again, and your message wins", () => {
+  assert.equal(
+    issueMessage("ENG-7", { again: false, note: "" }),
+    "Work on Linear issue ENG-7, attached.\n\nIf you have Linear's tools, use them for anything it leaves out, like sub-issues, related issues or older comments.",
+  );
+  assert.match(
+    issueMessage("ENG-7", { again: true, note: " " }),
+    /^Here's Linear issue ENG-7 again, as it is now: attached\./,
+  );
+  // no nudge after your own words: they may say otherwise
+  assert.equal(
+    issueMessage("ENG-7", { again: false, note: "Review only the attached text." }),
+    "Review only the attached text.",
+  );
+});
+
+test("a command takes an issue's identifier, then a message if you like", () => {
+  assert.deepEqual(parseArgs("  eng-7  "), { identifier: "ENG-7", note: "" });
+  assert.deepEqual(parseArgs("3AF-38 Only the iOS part,\nplease"), {
+    identifier: "3AF-38",
+    note: "Only the iOS part,\nplease",
+  });
+  assert.throws(() => parseArgs("fix the login"), /like ENG-123/);
+  assert.throws(() => parseArgs(""), /like ENG-123/);
+});
+
+test("the commands' lookup says when an account didn't answer; the pickers' search leaves it out", async () => {
+  process.env.PASEO_HOME = mkdtempSync(join(tmpdir(), "linear-find-"));
+  await saveAccount(account("u-acme", "acme"));
+  await saveAccount(account("u-side", "side"));
+  const handlers: Record<string, (input: unknown, context: unknown) => Promise<unknown>> = {};
+  contribute({
+    registerSettings: () => ({ read: async () => settingsOf({}), subscribe: () => () => {} }),
+    handle: (contract: { name: string }, handler: never) => (handlers[contract.name] = handler),
+    on: () => () => {},
+    before: () => () => {},
+  } as never);
+  let sideDown = true;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const side = (init.headers as Record<string, string>).Authorization === "lin_api_side";
+    if (side && sideDown) return new Response("{}", { status: 503 });
+    const { query } = JSON.parse(String(init.body)) as { query: string };
+    const data = query.includes("viewer")
+      ? {
+          viewer: { id: "v", name: "Sam", email: "s@x" },
+          organization: { name: side ? "Side" : "Acme", urlKey: "x" },
+        }
+      : { issue: detail({ id: side ? "i-side" : "i-acme" }) };
+    return new Response(JSON.stringify({ data }));
+  }) as typeof fetch;
+  try {
+    const find = () =>
+      handlers["linear.find"]({ identifier: "ENG-7" }, {}) as Promise<{
+        items: unknown[];
+        complete: boolean;
+      }>;
+    const down = await find();
+    assert.equal(down.complete, false);
+    assert.equal(down.items.length, 1);
+    const search = (await handlers["linear.search"]({ query: "ENG-7" }, {})) as { items: unknown[] };
+    assert.equal(search.items.length, 1);
+    sideDown = false;
+    const both = await find();
+    assert.equal(both.complete, true);
+    assert.equal(both.items.length, 2);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

@@ -1,14 +1,22 @@
 import type {
+  PluginButton,
   PluginButtonIconProps,
   PluginButtonRegistration,
   PluginClientContext,
 } from "@getpaseo/plugin/client";
+import { chatsRpc, type ChatIssue } from "../shared/contracts";
+import type { ChatStore } from "./chats";
 import { LinearLogo } from "./logo";
-import { SendIssue } from "./send";
+import { sendIssue } from "./send";
 
 const Logo = ({ size, color, layout }: PluginButtonIconProps) => (
   <LinearLogo size={size} color={color} platform={layout.platform} />
 );
+
+// another app can give a chat its issue: the pills catch up this often
+const POLL_MS = 60_000;
+// a new chat shows up just before the daemon remembers its issue, if it has one
+const SETTLE_MS = 1_000;
 
 interface AgentLike {
   id: string;
@@ -16,10 +24,49 @@ interface AgentLike {
   archivedAt?: string | null;
 }
 
-/** A "Work on a Linear issue" pill above every agent's composer, following the agents as they come and go. */
-export function sendPills(client: PluginClientContext): () => void {
-  const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
+/** What a pill says: the chat's issue, or that it can have one. */
+const presentation = (issue: ChatIssue | null): Pick<PluginButton, "title" | "label"> =>
+  issue
+    ? // pills are narrow; the logo says Linear
+      { title: `Linear issue ${issue.identifier}: ${issue.title}`, label: issue.identifier }
+    : { title: "Work on a Linear issue", label: "Work on an issue" };
+const keyOf = (issue: ChatIssue | null) => (issue ? `${issue.identifier} ${issue.title}` : "");
+
+/**
+ * A Linear pill above every agent's composer, following the agents as they come and go: "Work on
+ * an issue", or the chat's issue once it has one.
+ */
+export function sendPills(client: PluginClientContext, store: ChatStore): () => void {
+  const pills = new Map<
+    string,
+    { workspaceId: string; registration: PluginButtonRegistration; shows: string }
+  >();
   const lifetime = new AbortController();
+  const SendIssue = sendIssue(store);
+
+  let settling: ReturnType<typeof setTimeout> | null = null;
+  const refresh = () =>
+    void store
+      .refresh(async () => (await client.rpc(chatsRpc, {})).chats)
+      .catch((error: unknown) => {
+        if (!lifetime.signal.aborted) console.error("Linear: reading chats' issues failed:", error);
+      });
+  const refreshSoon = () => {
+    if (settling) clearTimeout(settling);
+    settling = setTimeout(refresh, SETTLE_MS);
+  };
+  // each chat asked about once, when it first shows up
+  const seen = new Set<string>();
+  const poll = setInterval(refresh, POLL_MS);
+  const unsubscribe = store.subscribe(() => {
+    for (const [agentId, pill] of pills) {
+      const issue = store.get(agentId);
+      // touching a pill closes its popover: only when what it says changes
+      if (keyOf(issue) === pill.shows) continue;
+      pill.shows = keyOf(issue);
+      pill.registration.update(presentation(issue));
+    }
+  });
 
   const hide = (agentId: string) => {
     pills.get(agentId)?.registration.remove();
@@ -28,24 +75,28 @@ export function sendPills(client: PluginClientContext): () => void {
   const show = (agent: AgentLike) => {
     if (lifetime.signal.aborted) return;
     if (!agent.workspaceId || agent.archivedAt) return hide(agent.id);
+    if (!seen.has(agent.id)) {
+      seen.add(agent.id);
+      refreshSoon();
+    }
     // agents update all the time while they work, and touching a pill closes its popover
     if (pills.get(agent.id)?.workspaceId === agent.workspaceId) return;
     hide(agent.id);
+    const issue = store.get(agent.id);
     const registration = client.addComposerPill({
       id: "send-issue",
       workspaceId: agent.workspaceId,
       agentId: agent.id,
       button: {
-        title: "Work on a Linear issue",
-        // pills are narrow; the logo says Linear
-        label: "Work on an issue",
+        ...presentation(issue),
         icon: Logo,
         behavior: { kind: "popover", Content: SendIssue },
       },
     });
-    pills.set(agent.id, { workspaceId: agent.workspaceId, registration });
+    pills.set(agent.id, { workspaceId: agent.workspaceId, registration, shows: keyOf(issue) });
   };
 
+  refresh();
   void client.paseo.agents
     .list({ subscribe: {}, page: { limit: 200 }, signal: lifetime.signal })
     .then(({ subscription }) => {
@@ -70,6 +121,9 @@ export function sendPills(client: PluginClientContext): () => void {
 
   return () => {
     lifetime.abort();
+    if (settling) clearTimeout(settling);
+    clearInterval(poll);
+    unsubscribe();
     for (const agentId of [...pills.keys()]) hide(agentId);
   };
 }
