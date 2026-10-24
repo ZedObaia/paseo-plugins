@@ -104,3 +104,61 @@ test("agent tools are off until allowed per device, and forgotten with a deleted
 test("every RPC contract is valid (defineRpc throws on load otherwise)", async () => {
   await assert.doesNotReject(import("../shared/contracts"));
 });
+
+test("the picker answers an agent's MCP messages over stdio, in its own workspace", async () => {
+  const { spawn } = await import("node:child_process");
+  const { servePicker } = await import("./picker");
+  const socket = path.join(mkdtempSync(path.join(os.tmpdir(), "picker-")), "picker.sock");
+  const used: string[] = [];
+  const stop = servePicker(socket, {
+    list: async (w) => `devices for ${w.workspaceName}`,
+    use: async (w, id) => {
+      if (id === "ios:held") throw new Error("In use by Checkout");
+      used.push(`${w.workspaceId}:${id}`);
+      return "ok";
+    },
+  });
+  const bridge = spawn(process.execPath, [path.join(import.meta.dirname, "picker-bridge.mjs")], {
+    env: { PASEO_DEVICES_SOCKET: socket, PASEO_DEVICES_WORKSPACE: JSON.stringify(B) },
+  });
+  const call = (id: number, name: string, args = {}) =>
+    JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  bridge.stdin.end(
+    [
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18" },
+      }),
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+      call(3, "list_devices"),
+      call(4, "use_device", { deviceId: "ios:held" }),
+      call(5, "use_device", { deviceId: "ios:1" }),
+    ].join("\n") + "\n",
+  );
+  let out = "";
+  for await (const chunk of bridge.stdout) out += chunk;
+  stop();
+  const answers = out
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  // the notification gets no answer
+  assert.deepEqual(
+    answers.map((a) => a.id),
+    [1, 2, 3, 4, 5],
+  );
+  assert.equal(answers[0].result.capabilities.tools !== undefined, true);
+  assert.deepEqual(
+    answers[1].result.tools.map((t: { name: string }) => t.name),
+    ["list_devices", "use_device"],
+  );
+  assert.equal(answers[2].result.content[0].text, "devices for Onboarding");
+  assert.deepEqual(
+    [answers[3].result.isError, answers[3].result.content[0].text],
+    [true, "In use by Checkout"],
+  );
+  assert.deepEqual(used, ["b:ios:1"]);
+});

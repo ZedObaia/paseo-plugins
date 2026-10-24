@@ -10,13 +10,15 @@ import {
   type Device,
 } from "./shared/contracts";
 import * as android from "./server/android";
-import { injectDeviceTools, syncAgentConfigs } from "./server/agents";
+import { PICKER_SOCKET, injectDeviceTools, syncAgentConfigs } from "./server/agents";
 import { encode, forget, type Frame } from "./server/frames";
 import * as ios from "./server/ios";
+import { servePicker, type Picker } from "./server/picker";
 import {
   agentToolsAllowed,
   allowAgentTools,
   assignments,
+  holderOf,
   isOwned,
   loadState,
   owned,
@@ -197,6 +199,47 @@ export default function contribute(server: PluginServerContext) {
   const stopReaper = ios.startIdleReaper();
   injectDeviceTools(server, ready);
 
+  // Agents in a workspace without a device pick one of those the user allowed agents on
+  const picker: Picker = {
+    async list(workspace) {
+      await ready;
+      const allowed = withStatus((await listDevices()).devices).filter((d) => d.agentTools);
+      if (!allowed.length)
+        return "The user hasn't allowed agents on any device. They do that in this workspace's Device panel.";
+      return allowed
+        .map((d) => {
+          const holder = holderOf(d.id);
+          const held = !holder
+            ? "free"
+            : holder.workspaceId === workspace.workspaceId
+              ? "this workspace's device"
+              : `in use by ${holder.workspaceName}`;
+          return `${d.id}: ${d.name}${d.detail ? ` (${d.detail})` : ""}, ${d.state}, ${held}`;
+        })
+        .join("\n");
+    },
+    async use(workspace, deviceId) {
+      await ready;
+      const mine = assignments().find((a) => a.workspaceId === workspace.workspaceId);
+      if (mine?.deviceId === deviceId) return "It's already this workspace's device";
+      if (mine)
+        throw new Error(`This workspace has ${mine.deviceId}; the user changes it in the Device panel`);
+      const device = withStatus((await listDevices()).devices).find((d) => d.id === deviceId);
+      if (!device) throw new Error("No such device on this host; call list_devices");
+      if (!device.agentTools)
+        throw new Error(`The user hasn't allowed agents on ${device.name}; they do that in the Device panel`);
+      // another workspace's device stays theirs
+      await setAssignment(workspace, deviceId, false);
+      if (device.state === "shutdown") boot(deviceId);
+      await syncAgentConfigs();
+      listing = null;
+      return device.state === "booted"
+        ? `${device.name} is this workspace's device; drive it with the device tools`
+        : `${device.name} is this workspace's device and is starting; the device tools reach it once it's on`;
+    },
+  };
+  const stopPicker = servePicker(PICKER_SOCKET, picker);
+
   server.handle(listRpc, async () => {
     await ready;
     const { devices, ...platforms } = await listDevices();
@@ -312,5 +355,8 @@ export default function contribute(server: PluginServerContext) {
     return { ok: true as const };
   });
 
-  return () => stopReaper();
+  return () => {
+    stopReaper();
+    stopPicker();
+  };
 }

@@ -1,13 +1,15 @@
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginHookContext, PluginServerContext } from "@getpaseo/plugin/server";
 import type { Assignment } from "../shared/contracts";
 import { serialOf } from "./android";
-import { NODE, NODE_ENV, dependencyFile } from "./paths";
-import { STATE_DIR, agentToolsAllowed, assignmentFor, assignments } from "./state";
+import { NODE, NODE_ENV, PLUGIN_DIR, dependencyFile } from "./paths";
+import type { Workspace } from "./picker";
+import { STATE_DIR, agentToolsAllowed, anyAgentTools, assignmentFor, assignments, isInside } from "./state";
 
 const AGENT_DEVICE = dependencyFile("agent-device", "bin/agent-device.mjs");
 const CONFIG_DIR = path.join(STATE_DIR, "agent-device");
+export const PICKER_SOCKET = path.join(STATE_DIR, "picker.sock");
 const configFile = (workspaceId: string) =>
   path.join(CONFIG_DIR, `${workspaceId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
 
@@ -62,36 +64,80 @@ export function syncAgentConfigs(): Promise<void> {
   return syncing;
 }
 
+type PaseoApi = PluginHookContext["paseo"];
+
+/** The Paseo workspace containing cwd (the deepest one), whether or not it holds a device. */
+async function workspaceAt(paseo: PaseoApi, cwd: string): Promise<Workspace | null> {
+  const entries: Awaited<ReturnType<PaseoApi["workspaces"]["list"]>>["entries"] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await paseo.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
+    entries.push(...page.entries);
+    cursor = page.pageInfo?.nextCursor ?? undefined;
+  } while (cursor);
+  const found = entries
+    .filter((w) => isInside(cwd, w.workspaceDirectory))
+    .sort((a, b) => b.workspaceDirectory.length - a.workspaceDirectory.length)[0];
+  return found
+    ? { workspaceId: found.id, workspaceName: found.title ?? found.name, directory: found.workspaceDirectory }
+    : null;
+}
+
+const NO_DEVICE =
+  "This workspace has no simulator or emulator yet, so the `device` tools fail until it has one. " +
+  "To use one, call `device-picker`'s list_devices, then use_device with a free device.";
+
 /**
  * Agents started in a workspace get agent-device's MCP tools for its device once the user has
- * allowed agent tools on that device: agent-device installs its helpers there on first use.
+ * allowed agent tools on that device: agent-device installs its helpers there on first use. In a
+ * workspace without a device, they also get the picker, to take one of the devices the user
+ * allowed agents on; agent-device follows its config file, written once the device is theirs.
  */
 export function injectDeviceTools(server: PluginServerContext, ready: Promise<void>) {
-  server.before("agent.create", async ({ request }) => {
+  server.before("agent.create", async ({ request }, { paseo }) => {
+    const { config } = request;
     // Paseo's own background agents (commit messages, PR descriptions) don't drive devices
-    if (request.config.internal) return undefined;
+    if (config.internal) return undefined;
     await ready;
-    const assignment = assignmentFor(request.config.cwd);
-    if (!assignment || !agentToolsAllowed(assignment.deviceId)) return undefined;
+    const assignment = assignmentFor(config.cwd);
+    if (assignment && !agentToolsAllowed(assignment.deviceId)) return undefined;
+    const workspace =
+      assignment ?? (anyAgentTools() ? await workspaceAt(paseo, config.cwd).catch(() => null) : null);
+    if (!workspace) return undefined;
     // picks up an emulator started outside the plugin since the last change
     await syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error));
+    const mcpServers = {
+      ...config.mcpServers,
+      device: {
+        type: "stdio" as const,
+        command: NODE,
+        args: [AGENT_DEVICE, "mcp"],
+        env: {
+          ...NODE_ENV,
+          AGENT_DEVICE_CONFIG: configFile(workspace.workspaceId),
+          AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+        },
+      },
+    };
+    if (assignment) return { ...request, config: { ...config, mcpServers } };
     return {
       ...request,
       config: {
-        ...request.config,
+        ...config,
         mcpServers: {
-          ...request.config.mcpServers,
-          device: {
-            type: "stdio",
+          ...mcpServers,
+          "device-picker": {
+            type: "stdio" as const,
             command: NODE,
-            args: [AGENT_DEVICE, "mcp"],
+            args: [path.join(PLUGIN_DIR, "server", "picker-bridge.mjs")],
             env: {
               ...NODE_ENV,
-              AGENT_DEVICE_CONFIG: configFile(assignment.workspaceId),
-              AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+              PASEO_DEVICES_SOCKET: PICKER_SOCKET,
+              PASEO_DEVICES_WORKSPACE: JSON.stringify(workspace),
             },
           },
         },
+        systemPrompt: [config.systemPrompt, NO_DEVICE].filter(Boolean).join("\n\n"),
       },
     };
   });

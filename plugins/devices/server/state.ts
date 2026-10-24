@@ -46,6 +46,7 @@ export const assignments = (): readonly Assignment[] => state.assignments;
 export const owned = (): readonly string[] => state.owned;
 export const isOwned = (deviceId: string) => state.owned.includes(deviceId);
 export const agentToolsAllowed = (deviceId: string) => state.agentTools.includes(deviceId);
+export const anyAgentTools = () => state.agentTools.length > 0;
 
 export async function allowAgentTools(deviceId: string, allow: boolean): Promise<void> {
   state.agentTools = state.agentTools.filter((id) => id !== deviceId);
@@ -85,6 +86,9 @@ export async function setOwned(deviceId: string, owned: boolean): Promise<void> 
   await save();
 }
 
+export const isInside = (cwd: string, dir: string) =>
+  cwd === dir || cwd.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
+
 /**
  * The assignment of the workspace containing cwd (the deepest directory wins).
  * ponytail: only workspaces holding a device are known here, so a workspace without one inside
@@ -92,9 +96,7 @@ export async function setOwned(deviceId: string, owned: boolean): Promise<void> 
  * so that takes a project added inside another; the fix is a paginated workspace list per agent.
  */
 export function assignmentFor(cwd: string): Assignment | undefined {
-  const inside = (dir: string) =>
-    cwd === dir || cwd.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
   return [...state.assignments]
-    .filter((a) => inside(a.directory))
+    .filter((a) => isInside(cwd, a.directory))
     .sort((a, b) => b.directory.length - a.directory.length)[0];
 }
