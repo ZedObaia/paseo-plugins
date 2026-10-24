@@ -1,6 +1,6 @@
 {
   "name": "paseo-plugin-devices",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "iOS simulators and Android emulators per workspace, with a live view and tools for agents.",
   "license": "MIT",
   "repository": {

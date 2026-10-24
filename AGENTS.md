@@ -39,6 +39,10 @@ Resources, Devices, Ports and Linear.
    resolve then (`@getpaseo/plugin`, `zod`, `react`, `react-native`, `@tanstack/react-query`), so
    even a type-only import from anything else, like `@getpaseo/client`, fails the build: derive
    such types from `@getpaseo/plugin/server` instead. Linear 0.1.0 was listed broken this way.
+   A directory install doesn't run the manifest's `build` (daemon 0.12.0), so for a plugin with
+   dependencies, like Devices, run that command in the copy before installing it. To leave the
+   live plugin alone (Devices keeps its state and sockets under `plugin-data/devices` whatever
+   its ID), install it into a second daemon as in step 4.
 6. The commit to submit is pushed to `main`.
 
 ### Submitting

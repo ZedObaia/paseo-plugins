@@ -19,7 +19,9 @@ tools: accessibility snapshots, taps, typing, app launches and screenshots. Agen
 until you allow them on a device from its panel, which first explains what agent-device will
 install there. Agents started in the workspace after that get the tools, and they only reach that
 workspace's device. When it is released, taken over or deleted, their device tools stop working;
-an emulator that is off can't be driven until it is turned on.
+an emulator that is off can't be driven until it is turned on. In a workspace without a device,
+agents can take one themselves, but only one you allowed agents on that no other workspace holds:
+it becomes the workspace's device, as if you had picked it in the panel, and is turned on.
 
 The **Devices** screen lists every simulator and emulator on the host, which workspace holds it,
 and turns them on or off. Devices made with New copy can be deleted there. An emulator copy runs
@@ -42,11 +44,14 @@ Emulators started here run headless, with their control port bound to localhost 
 a token. The iOS live view runs serve-sim in a helper process that listens only on a Unix socket in
 a folder only your user can open. It has no network port, so web pages and other machines can't
 reach it. The helper stops about 30 seconds after the last panel showing a simulator closes, and
-when the plugin stops.
+when the plugin stops. Agents in a workspace without a device reach the plugin through a small
+helper over another such Unix socket: it lists the devices you allowed agents on and gives a free
+one to the agent's workspace, nothing else.
 
 Frames and input travel between the host and your Paseo apps. What agents read through the device
 tools, including screenshots and screen text, is sent to the agent's model provider like any other
-tool result.
+tool result. So are the names and states of the devices you allowed agents on, and which workspace
+holds each, when an agent without a device lists them.
 
 The first time an agent drives a device, agent-device installs its helpers on it: an XCTest runner
 app it builds locally with Xcode for iOS, and two helper apps it ships with for Android (one reads
