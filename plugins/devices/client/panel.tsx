@@ -15,7 +15,9 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
   const ws = useWorkspace(workspaceId, (w) => ({ name: w.title ?? w.name, directory: w.directory }));
   const devices = useDevices(host.id);
   const [picking, setPicking] = useState(false);
-  const [landscape, setLandscape] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  // which way the shown device's last picture faced; a device not seen yet counts as portrait
+  const [shape, setShape] = useState<{ deviceId: string; landscape: boolean } | null>(null);
   const c = theme.colors;
   if (!ws || !devices.data) {
     return (
@@ -29,17 +31,25 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
     );
   }
   const workspace: Workspace = { workspaceId, workspaceName: ws.name, directory: ws.directory };
-  const mine = devices.data.assignments.find((a) => a.workspaceId === workspaceId);
-  const device = devices.data.devices.find((d) => d.id === mine?.deviceId);
+  const { assignments, devices: all } = devices.data;
+  // this workspace's devices in the order they were added; the panel shows one at a time
+  const mine = assignments
+    .filter((a) => a.workspaceId === workspaceId)
+    .flatMap((a) => all.filter((d) => d.id === a.deviceId));
+  const device = mine.find((d) => d.id === selected) ?? mine[0];
+  const landscape = shape !== null && shape.deviceId === device?.id && shape.landscape;
   const picker = (
     <DevicePicker
       theme={theme}
       hostId={host.id}
       workspace={workspace}
-      devices={devices.data.devices}
-      assignments={devices.data.assignments}
+      devices={all}
+      assignments={assignments}
       unavailable={[devices.data.ios, devices.data.android].filter((p) => !p.available).map((p) => p.reason)}
-      onDone={() => setPicking(false)}
+      onDone={(deviceId) => {
+        setSelected(deviceId);
+        setPicking(false);
+      }}
     />
   );
 
@@ -47,19 +57,42 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
     <View style={{ flex: 1, backgroundColor: c.surface0, padding: layout.compact ? 8 : 12, gap: 8 }}>
       {device ? (
         <>
+          {mine.length > 1 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {mine.map((d) => (
+                <Button
+                  key={d.id}
+                  theme={theme}
+                  // two of one model: the iOS version tells them apart
+                  label={
+                    d.detail && mine.some((o) => o !== d && o.name === d.name)
+                      ? `${d.name} · ${d.detail}`
+                      : d.name
+                  }
+                  primary={d.id === device.id}
+                  onPress={() => setSelected(d.id)}
+                />
+              ))}
+            </View>
+          ) : null}
           <Toolbar
             theme={theme}
             hostId={host.id}
             device={device}
             workspace={workspace}
             landscape={landscape}
-            onChange={() => setPicking(true)}
+            onAdd={() => setPicking(true)}
           />
           <AgentTools theme={theme} hostId={host.id} device={device} />
           {device.state === "booted" ? (
             // keyed: a new device starts with an empty picture, not taps on the old one's
             <>
-              <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={setLandscape} />
+              <LiveScreen
+                key={device.id}
+                theme={theme}
+                deviceId={device.id}
+                onShape={(wide) => setShape({ deviceId: device.id, landscape: wide })}
+              />
               {layout.compact && Platform.OS !== "web" ? (
                 <Text style={{ color: c.foregroundMuted, fontSize: 12, textAlign: "center" }}>
                   Swipe sideways with two fingers: one finger moves Paseo's panels.
@@ -72,7 +105,7 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
               {device.state === "booting" ? <ActivityIndicator color={c.foregroundMuted} /> : null}
             </View>
           )}
-          <Modal title="Device for this workspace" open={picking} onOpenChange={setPicking}>
+          <Modal title="Add a device to this workspace" open={picking} onOpenChange={setPicking}>
             <Modal.Content>{picker}</Modal.Content>
           </Modal>
         </>
@@ -134,8 +167,9 @@ function AgentTools({ theme, hostId, device }: { theme: PluginTheme; hostId: str
             The first time one does, {installs(device)} Nothing is downloaded.
           </Text>
           <Text style={{ color: c.foregroundMuted, lineHeight: 20 }}>
-            Agents that were started without device tools need a restart to get them. Turning this off takes
-            the device away from every agent; helpers already installed stay on it.
+            Agents that were started without device tools need a restart to get them. With several devices
+            here, agents drive one at a time and switch between those you allowed. Turning this off takes the
+            device away from every agent; helpers already installed stay on it.
           </Text>
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
             <Button theme={theme} label="Not now" disabled={busy} onPress={() => setAsking(false)} />
@@ -174,7 +208,7 @@ function Toolbar({
   device,
   workspace,
   landscape,
-  onChange,
+  onAdd,
 }: {
   theme: PluginTheme;
   hostId: string;
@@ -182,7 +216,7 @@ function Toolbar({
   workspace: Workspace;
   // from the last picture, so it is right after a remount too
   landscape: boolean;
-  onChange(): void;
+  onAdd(): void;
 }) {
   const { power, assign } = useDeviceRpcs();
   const input = useRpc(inputRpc);
@@ -252,7 +286,7 @@ function Toolbar({
       </View>
       {more ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <Button theme={theme} icon="ArrowLeftRight" label="Change device" onPress={onChange} />
+          <Button theme={theme} icon="Plus" label="Add device" onPress={onAdd} />
           {canTurnOff(device) ? (
             <Button
               theme={theme}
@@ -267,7 +301,11 @@ function Toolbar({
             icon="Unlink"
             label="Release device"
             disabled={busy}
-            onPress={() => void perform(() => assign({ ...workspace, deviceId: null, takeOver: false }))}
+            onPress={() =>
+              void perform(() =>
+                assign({ ...workspace, deviceId: device.id, takeOver: false, release: true }),
+              )
+            }
           />
         </View>
       ) : null}
@@ -323,25 +361,25 @@ function DevicePicker({
   devices: Device[];
   assignments: Assignment[];
   unavailable: string[];
-  onDone(): void;
+  onDone(deviceId: string): void;
 }) {
   const { assign, create, power } = useDeviceRpcs();
   const { busy, perform } = useAction(hostId);
   const [confirm, setConfirm] = useState<{ device: Device; holder: Assignment } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const c = theme.colors;
-  const holderOf = (d: Device) =>
-    assignments.find((a) => a.deviceId === d.id && a.workspaceId !== workspace.workspaceId);
+  const holderOf = (d: Device) => assignments.find((a) => a.deviceId === d.id);
 
   async function use(device: Device, takeOver: boolean) {
-    const ok = await perform(() => assign({ ...workspace, deviceId: device.id, takeOver }));
+    const ok = await perform(() => assign({ ...workspace, deviceId: device.id, takeOver, release: false }));
     if (!ok) return;
     if (canTurnOn(device)) await perform(() => power({ deviceId: device.id, action: "boot" }), true);
     setConfirm(null);
-    onDone();
+    onDone(device.id);
   }
   async function duplicate(device: Device) {
-    if (await perform(() => create({ ...workspace, from: device.id }))) onDone();
+    const created = await perform(() => create({ ...workspace, from: device.id }));
+    if (created) onDone(created.deviceId);
   }
 
   const { main, rest } = splitDevices(devices, new Set(assignments.map((a) => a.deviceId)));
@@ -364,14 +402,17 @@ function DevicePicker({
             <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{title}</Text>
             <Card theme={theme}>
               {list.map((d, index) => {
-                const holder = holderOf(d);
+                const held = holderOf(d);
+                // this workspace's own devices stay listed as sources for New copy
+                const own = held?.workspaceId === workspace.workspaceId;
+                const holder = own ? undefined : held;
                 return (
                   <DeviceRow
                     key={d.id}
                     theme={theme}
                     device={d}
                     first={index === 0}
-                    note={holder && `in use by ${holder.workspaceName}`}
+                    note={own ? "in this workspace" : holder && `in use by ${holder.workspaceName}`}
                     warn={Boolean(holder)}
                   >
                     {canDuplicate(d) ? (
@@ -383,13 +424,15 @@ function DevicePicker({
                         onPress={() => void duplicate(d)}
                       />
                     ) : null}
-                    <Button
-                      theme={theme}
-                      primary={!holder}
-                      label={holder ? "Take over" : "Use"}
-                      disabled={busy}
-                      onPress={() => (holder ? setConfirm({ device: d, holder }) : void use(d, false))}
-                    />
+                    {own ? null : (
+                      <Button
+                        theme={theme}
+                        primary={!holder}
+                        label={holder ? "Take over" : "Use"}
+                        disabled={busy}
+                        onPress={() => (holder ? setConfirm({ device: d, holder }) : void use(d, false))}
+                      />
+                    )}
                   </DeviceRow>
                 );
               })}

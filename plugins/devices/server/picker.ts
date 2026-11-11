@@ -5,7 +5,7 @@ import type { Assignment } from "../shared/contracts";
 
 export type Workspace = Omit<Assignment, "deviceId">;
 
-/** What an agent in a workspace without a device can do: see the devices it may use, and take one. */
+/** What an agent can do: see the devices it may use, switch between its workspace's, take a free one. */
 export interface Picker {
   list(workspace: Workspace): Promise<string>;
   use(workspace: Workspace, deviceId: string): Promise<string>;
@@ -21,7 +21,7 @@ const TOOLS = [
   {
     name: "use_device",
     description:
-      "Makes a free device from list_devices this workspace's device and turns it on. The device tools drive it from then on, and the user sees it in the workspace's Device panel.",
+      "Makes the device tools drive a device from list_devices: one of this workspace's, or a free one, which joins this workspace (the user sees it in its Device panel). A simulator or emulator that is off is turned on.",
     inputSchema: {
       type: "object",
       properties: { deviceId: { type: "string", description: "An id from list_devices" } },

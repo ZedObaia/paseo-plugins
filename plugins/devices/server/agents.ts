@@ -5,7 +5,7 @@ import type { Assignment } from "../shared/contracts";
 import { serialOf } from "./android";
 import { NODE, NODE_ENV, PLUGIN_DIR, dependencyFile } from "./paths";
 import type { Workspace } from "./picker";
-import { STATE_DIR, agentToolsAllowed, anyAgentTools, assignmentFor, assignments, isInside } from "./state";
+import { STATE_DIR, anyAgentTools, assignmentFor, assignments, isInside, targetOf } from "./state";
 
 const AGENT_DEVICE = dependencyFile("agent-device", "bin/agent-device.mjs");
 const CONFIG_DIR = path.join(STATE_DIR, "agent-device");
@@ -15,8 +15,8 @@ const configFile = (workspaceId: string) =>
 
 /**
  * agent-device reads this file on every tool call, so agents follow it as soon as it changes. It
- * names the workspace's device and a session named after that device: a session stays on the
- * device it first used, so a new device needs a new session.
+ * names the device the workspace's agents drive and a session named after that device: a session
+ * stays on the device it first used, so a new device needs a new session.
  */
 async function writeAgentConfig(assignment: Assignment): Promise<string> {
   let target: { platform: "ios"; udid: string } | { platform: "android"; serial: string };
@@ -42,11 +42,12 @@ async function writeAgentConfig(assignment: Assignment): Promise<string> {
 let syncing = Promise.resolve();
 
 /**
- * Brings every workspace's file in line with the assignments and deletes the others. A file is
- * only written for a device the user allowed agent tools on: a missing file fails every
- * agent-device call, so agents already running lose a device that was released, taken over,
- * deleted or switched to one without consent, and agent-device never installs its helpers there.
- * Runs after every change, consent included; one sync at a time.
+ * Brings every workspace's file in line with the device its agents drive (targetOf) and deletes
+ * the others. A file is only written for a device the user allowed agent tools on, so agents
+ * already running stop reaching a device that was released, taken over, deleted or had consent
+ * withdrawn: they move to another of the workspace's allowed devices, or with none left, the
+ * missing file fails every agent-device call. agent-device never installs its helpers on a device
+ * without consent. Runs after every change, consent included; one sync at a time.
  */
 export function syncAgentConfigs(): Promise<void> {
   syncing = syncing
@@ -54,9 +55,9 @@ export function syncAgentConfigs(): Promise<void> {
     .then(async () => {
       await mkdir(CONFIG_DIR, { recursive: true });
       const keep = new Set<string>();
-      for (const assignment of assignments()) {
-        if (agentToolsAllowed(assignment.deviceId))
-          keep.add(path.basename(await writeAgentConfig(assignment)));
+      for (const workspaceId of new Set(assignments().map((a) => a.workspaceId))) {
+        const target = targetOf(workspaceId);
+        if (target) keep.add(path.basename(await writeAgentConfig(target)));
       }
       for (const name of await readdir(CONFIG_DIR))
         if (!keep.has(name)) await rm(path.join(CONFIG_DIR, name), { force: true });
@@ -84,14 +85,14 @@ async function workspaceAt(paseo: PaseoApi, cwd: string): Promise<Workspace | nu
 }
 
 const NO_DEVICE =
-  "This workspace has no simulator or emulator yet, so the `device` tools fail until it has one. " +
-  "To use one, call `device-picker`'s list_devices, then use_device with a free device.";
+  "This workspace has no simulator or emulator agents may drive yet, so the `device` tools fail " +
+  "until it has one. To use one, call `device-picker`'s list_devices, then use_device with a free device.";
 
 /**
- * Agents started in a workspace get agent-device's MCP tools for its device once the user has
- * allowed agent tools on that device: agent-device installs its helpers there on first use. In a
- * workspace without a device, they also get the picker, to take one of the devices the user
- * allowed agents on; agent-device follows its config file, written once the device is theirs.
+ * Agents started in a workspace get agent-device's MCP tools for one of its devices once the user
+ * has allowed agent tools on it: agent-device installs its helpers there on first use. They also
+ * get the picker, to switch between the workspace's devices or take a free one the user allowed
+ * agents on; agent-device follows its config file, rewritten on every change.
  */
 export function injectDeviceTools(server: PluginServerContext, ready: Promise<void>) {
   server.before("agent.create", async ({ request }, { paseo }) => {
@@ -99,33 +100,27 @@ export function injectDeviceTools(server: PluginServerContext, ready: Promise<vo
     // Paseo's own background agents (commit messages, PR descriptions) don't drive devices
     if (config.internal) return undefined;
     await ready;
-    const assignment = assignmentFor(config.cwd);
-    if (assignment && !agentToolsAllowed(assignment.deviceId)) return undefined;
-    const workspace =
-      assignment ?? (anyAgentTools() ? await workspaceAt(paseo, config.cwd).catch(() => null) : null);
+    if (!anyAgentTools()) return undefined;
+    const workspace = assignmentFor(config.cwd) ?? (await workspaceAt(paseo, config.cwd).catch(() => null));
     if (!workspace) return undefined;
     // picks up an emulator started outside the plugin since the last change
     await syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error));
-    const mcpServers = {
-      ...config.mcpServers,
-      device: {
-        type: "stdio" as const,
-        command: NODE,
-        args: [AGENT_DEVICE, "mcp"],
-        env: {
-          ...NODE_ENV,
-          AGENT_DEVICE_CONFIG: configFile(workspace.workspaceId),
-          AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
-        },
-      },
-    };
-    if (assignment) return { ...request, config: { ...config, mcpServers } };
     return {
       ...request,
       config: {
         ...config,
         mcpServers: {
-          ...mcpServers,
+          ...config.mcpServers,
+          device: {
+            type: "stdio" as const,
+            command: NODE,
+            args: [AGENT_DEVICE, "mcp"],
+            env: {
+              ...NODE_ENV,
+              AGENT_DEVICE_CONFIG: configFile(workspace.workspaceId),
+              AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
+            },
+          },
           "device-picker": {
             type: "stdio" as const,
             command: NODE,
@@ -137,7 +132,9 @@ export function injectDeviceTools(server: PluginServerContext, ready: Promise<vo
             },
           },
         },
-        systemPrompt: [config.systemPrompt, NO_DEVICE].filter(Boolean).join("\n\n"),
+        ...(targetOf(workspace.workspaceId)
+          ? {}
+          : { systemPrompt: [config.systemPrompt, NO_DEVICE].filter(Boolean).join("\n\n") }),
       },
     };
   });

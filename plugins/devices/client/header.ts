@@ -5,9 +5,9 @@ import { devicePanel } from "./location";
 const POLL_MS = 8_000;
 
 /**
- * A Device button in each workspace's header, named after the device the workspace holds. It's the
- * way to the panel on a phone, where no menu lists plugin panels, and opens it beside the agent on
- * a desktop. A host that can run neither simulators nor emulators gets none. Polls the host, and
+ * A Device button in each workspace's header, named after the workspace's device, or saying how
+ * many it holds. It's the way to the panel on a phone, where no menu lists plugin panels, and
+ * opens it beside the agent on a desktop. A host that can run neither simulators nor emulators gets none. Polls the host, and
  * only touches a button when its label changes.
  */
 export function headerButtons(client: PluginClientContext): () => void {
@@ -58,10 +58,14 @@ export function headerButtons(client: PluginClientContext): () => void {
       const labels = new Map<string, string>();
       if (devices.ios.available || devices.android.available) {
         for (const workspace of workspaces.entries) labels.set(workspace.id, "");
+        const names = new Map<string, string[]>();
         for (const a of devices.assignments) {
           const device = devices.devices.find((d) => d.id === a.deviceId);
-          if (device) labels.set(a.workspaceId, device.name);
+          if (device) names.set(a.workspaceId, [...(names.get(a.workspaceId) ?? []), device.name]);
         }
+        // one device's name, or how many: a long name would truncate a "+1"
+        for (const [workspaceId, list] of names)
+          labels.set(workspaceId, list.length > 1 ? `${list.length} devices` : list[0]);
       }
       show(labels);
     } catch {

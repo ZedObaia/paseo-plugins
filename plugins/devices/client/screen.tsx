@@ -74,7 +74,7 @@ export function DevicesScreen({ theme, layout, host, navigation }: PluginScreenP
                 icon="Unlink"
                 label="Release"
                 disabled={busy}
-                onPress={() => void perform(() => assign({ ...h, deviceId: null, takeOver: false }))}
+                onPress={() => void perform(() => assign({ ...h, takeOver: false, release: true }))}
               />
             ) : null}
             {d.owned ? (
@@ -113,7 +113,7 @@ export function DevicesScreen({ theme, layout, host, navigation }: PluginScreenP
       }}
     >
       <Text style={{ color: c.foregroundMuted }}>
-        A workspace's name opens it; its Device panel shows the device live.
+        A workspace's name opens it; its Device panel shows its devices live.
       </Text>
       {[data.ios, data.android]
         .filter((p) => !p.available)

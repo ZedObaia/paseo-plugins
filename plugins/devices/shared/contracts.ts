@@ -54,10 +54,17 @@ const workspace = z.object({
   directory: z.string().min(1),
 });
 
-/** Gives a device to a workspace (deviceId null: release). Refuses a device another workspace holds unless takeOver. */
+/**
+ * Adds a device to a workspace's devices, or with release takes it away from the workspace.
+ * Refuses a device another workspace holds unless takeOver.
+ */
 export const assignRpc = defineRpc({
   name: "devices.assign",
-  input: workspace.extend({ deviceId: deviceId.nullable(), takeOver: z.boolean().default(false) }),
+  input: workspace.extend({
+    deviceId,
+    takeOver: z.boolean().default(false),
+    release: z.boolean().default(false),
+  }),
   output: z.object({ message: z.string() }),
 });
 

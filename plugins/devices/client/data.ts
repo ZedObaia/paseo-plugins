@@ -18,24 +18,27 @@ export function useDevices(hostId: string) {
   });
 }
 
-/** Runs an action, shows its result or error as a toast, then refreshes the host's list. */
+/** Runs an action, shows its result or error as a toast, then refreshes the host's list. Null on error. */
 export function useAction(hostId: string) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  async function perform(work: () => Promise<{ message: string }>, quiet = false): Promise<boolean> {
+  async function perform<T extends { message: string }>(
+    work: () => Promise<T>,
+    quiet = false,
+  ): Promise<T | null> {
     setBusy(true);
     try {
-      const { message } = await work();
-      if (!quiet) toast.show(message, { variant: "success" });
-      return true;
+      const result = await work();
+      if (!quiet) toast.show(result.message, { variant: "success" });
+      return result;
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message.replace(/ requestType=.*$/, "").replace(/^Request failed: /, "")
           : String(error),
       );
-      return false;
+      return null;
     } finally {
       setBusy(false);
       await queryClient.invalidateQueries({ queryKey: queryKey(hostId) });

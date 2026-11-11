@@ -18,30 +18,59 @@ const A = { workspaceId: "a", workspaceName: "Checkout", directory: "/w/app" };
 const B = { workspaceId: "b", workspaceName: "Onboarding", directory: "/w/app-worktrees/onboarding" };
 
 test("a held device isn't silently taken by another workspace", async () => {
-  await state.setAssignment(A, "ios:1", false);
-  await assert.rejects(state.setAssignment(B, "ios:1", false), /In use by Checkout/);
+  await state.addAssignment(A, "ios:1", false);
+  await assert.rejects(state.addAssignment(B, "ios:1", false), /In use by Checkout/);
   assert.equal(state.holderOf("ios:1")?.workspaceId, "a");
-  assert.equal(await state.setAssignment(B, "ios:1", true), "Taken over from Checkout");
+  assert.equal(await state.addAssignment(B, "ios:1", true), "Taken over from Checkout");
   assert.equal(state.holderOf("ios:1")?.workspaceId, "b");
   assert.equal(state.assignments().filter((x) => x.workspaceId === "a").length, 0);
 });
 
-test("one device per workspace; release frees it", async () => {
-  await state.setAssignment(A, "ios:2", false);
-  await state.setAssignment(A, "ios:3", false);
-  assert.deepEqual(
+test("a workspace holds several devices; agents drive one; release frees one", async () => {
+  await state.addAssignment(A, "ios:2", false);
+  await state.addAssignment(A, "android:emulator-5554", false);
+  await state.addAssignment(A, "ios:3", false);
+  const mine = () =>
     state
       .assignments()
       .filter((x) => x.workspaceId === "a")
-      .map((x) => x.deviceId),
-    ["ios:3"],
-  );
-  assert.equal(await state.setAssignment(A, null, false), "Released the device");
+      .map((x) => x.deviceId);
+  assert.deepEqual(mine(), ["ios:2", "android:emulator-5554", "ios:3"]);
+  // only devices allowed for agents; the first allowed until agents choose
+  assert.equal(state.targetOf("a"), undefined);
+  await state.allowAgentTools("ios:3", true);
+  assert.equal(state.targetOf("a")?.deviceId, "ios:3");
+  // allowing one added earlier doesn't move agents off the one they drive
+  await state.allowAgentTools("android:emulator-5554", true);
+  assert.equal(state.targetOf("a")?.deviceId, "ios:3");
+  await state.setTarget("a", "android:emulator-5554");
+  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  await state.setTarget("a", "ios:3");
+  assert.equal(state.targetOf("a")?.deviceId, "ios:3");
+  // only the workspace holding it can release it (a panel a poll behind can't take it from another)
+  assert.equal(await state.removeAssignment("b", "ios:3"), false);
+  assert.equal(await state.removeAssignment("a", "ios:3"), true);
+  assert.deepEqual(mine(), ["ios:2", "android:emulator-5554"]);
   assert.equal(state.holderOf("ios:3"), undefined);
+  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  // releasing forgets that agents chose it: back again, it doesn't take over from the current one
+  await state.addAssignment(A, "ios:3", false);
+  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  // so does withdrawing consent
+  await state.setTarget("a", "ios:3");
+  await state.allowAgentTools("ios:3", false);
+  await state.allowAgentTools("ios:3", true);
+  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  // a device the workspace no longer holds can't become its target
+  await state.removeAssignment("a", "ios:3");
+  await state.setTarget("a", "ios:3");
+  await state.addAssignment(A, "ios:3", false);
+  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  for (const id of mine()) await state.removeAssignment("a", id);
 });
 
 test("agents in a subfolder of a workspace find its device; the deepest workspace wins", async () => {
-  await state.setAssignment({ workspaceId: "root", workspaceName: "Root", directory: "/w" }, "ios:4", false);
+  await state.addAssignment({ workspaceId: "root", workspaceName: "Root", directory: "/w" }, "ios:4", false);
   assert.equal(state.assignmentFor("/w/app-worktrees/onboarding/src")?.workspaceId, "b");
   assert.equal(state.assignmentFor("/w/other")?.workspaceId, "root");
   assert.equal(state.assignmentFor("/wx"), undefined);

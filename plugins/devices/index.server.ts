@@ -15,6 +15,7 @@ import { encode, forget, type Frame } from "./server/frames";
 import * as ios from "./server/ios";
 import { servePicker, type Picker } from "./server/picker";
 import {
+  addAssignment,
   agentToolsAllowed,
   allowAgentTools,
   assignments,
@@ -22,8 +23,10 @@ import {
   isOwned,
   loadState,
   owned,
-  setAssignment,
+  removeAssignment,
   setOwned,
+  setTarget,
+  targetOf,
 } from "./server/state";
 
 type Platform = { available: boolean; reason: string };
@@ -144,6 +147,23 @@ function withStatus(listed: Listed[]): Device[] {
       error: failures.get(id) ?? null,
     });
   }
+  // A held device that left the host (unplugged, deleted in Xcode, or a listing that failed for a
+  // moment) stays its workspace's: shown, so it can be released, and back when it returns.
+  for (const { deviceId: id } of assignments()) {
+    if (devices.some((d) => d.id === id)) continue;
+    devices.push({
+      id,
+      platform: id.startsWith("ios:") ? "ios" : "android",
+      name: "Missing device",
+      detail: "not on this host",
+      state: "shutdown",
+      // nothing to turn on, off, copy or delete: it can only be released
+      kind: "physical",
+      owned: false,
+      agentTools: agentToolsAllowed(id),
+      error: null,
+    });
+  }
   return devices;
 }
 
@@ -199,43 +219,49 @@ export default function contribute(server: PluginServerContext) {
   const stopReaper = ios.startIdleReaper();
   injectDeviceTools(server, ready);
 
-  // Agents in a workspace without a device pick one of those the user allowed agents on
+  // Agents switch between their workspace's devices, or take a free one the user allowed agents on
   const picker: Picker = {
     async list(workspace) {
       await ready;
       const allowed = withStatus((await listDevices()).devices).filter((d) => d.agentTools);
       if (!allowed.length)
         return "The user hasn't allowed agents on any device. They do that in this workspace's Device panel.";
+      const target = targetOf(workspace.workspaceId)?.deviceId;
       return allowed
         .map((d) => {
           const holder = holderOf(d.id);
           const held = !holder
             ? "free"
-            : holder.workspaceId === workspace.workspaceId
-              ? "this workspace's device"
-              : `in use by ${holder.workspaceName}`;
+            : holder.workspaceId !== workspace.workspaceId
+              ? `in use by ${holder.workspaceName}`
+              : d.id === target
+                ? "this workspace's, the device tools drive it"
+                : "this workspace's";
           return `${d.id}: ${d.name}${d.detail ? ` (${d.detail})` : ""}, ${d.state}, ${held}`;
         })
         .join("\n");
     },
     async use(workspace, deviceId) {
       await ready;
-      const mine = assignments().find((a) => a.workspaceId === workspace.workspaceId);
-      if (mine?.deviceId === deviceId) return "It's already this workspace's device";
-      if (mine)
-        throw new Error(`This workspace has ${mine.deviceId}; the user changes it in the Device panel`);
-      const device = withStatus((await listDevices()).devices).find((d) => d.id === deviceId);
+      const listed = (await listDevices()).devices;
+      const device = withStatus(listed).find((d) => d.id === deviceId);
       if (!device) throw new Error("No such device on this host; call list_devices");
+      // listed so the user can release or delete it, not to be driven: a held device that left the
+      // host, or an emulator copy that failed to start (it ran read-only, so it can't start again)
+      if (!booting.has(deviceId) && !listed.some((d) => d.id === deviceId))
+        throw new Error(`${device.name} isn't on this host right now; use another device`);
       if (!device.agentTools)
         throw new Error(`The user hasn't allowed agents on ${device.name}; they do that in the Device panel`);
       // another workspace's device stays theirs
-      await setAssignment(workspace, deviceId, false);
-      if (device.state === "shutdown") boot(deviceId);
+      await addAssignment(workspace, deviceId, false);
+      await setTarget(workspace.workspaceId, deviceId);
+      // a USB phone that's offline can't be turned on from here
+      if (device.state === "shutdown" && device.kind !== "physical") boot(deviceId);
       await syncAgentConfigs();
       listing = null;
       return device.state === "booted"
-        ? `${device.name} is this workspace's device; drive it with the device tools`
-        : `${device.name} is this workspace's device and is starting; the device tools reach it once it's on`;
+        ? `The device tools drive ${device.name} now`
+        : `The device tools drive ${device.name} now; they reach it once it's on`;
     },
   };
   const stopPicker = servePicker(PICKER_SOCKET, picker);
@@ -246,12 +272,19 @@ export default function contribute(server: PluginServerContext) {
     return { ...platforms, devices: withStatus(devices), assignments: [...assignments()] };
   });
 
-  server.handle(assignRpc, async ({ deviceId, takeOver, ...workspace }) => {
+  server.handle(assignRpc, async ({ deviceId, takeOver, release, ...workspace }) => {
     await ready;
-    if (deviceId && !booting.has(deviceId) && !(await listDevices()).devices.some((d) => d.id === deviceId)) {
+    if (release) {
+      // a panel a poll behind mustn't release a device another workspace took meanwhile
+      if (!(await removeAssignment(workspace.workspaceId, deviceId)))
+        throw new Error("It isn't this workspace's device any more");
+      await syncAgentConfigs();
+      return { message: "Released the device" };
+    }
+    if (!booting.has(deviceId) && !(await listDevices()).devices.some((d) => d.id === deviceId)) {
       throw new Error("That device isn't on this host");
     }
-    const result = await setAssignment(workspace, deviceId, takeOver);
+    const result = await addAssignment(workspace, deviceId, takeOver);
     await syncAgentConfigs();
     return { message: result };
   });
@@ -267,15 +300,18 @@ export default function contribute(server: PluginServerContext) {
     return { message: allow ? "Agents in its workspace can drive it" : "Agents can't drive it any more" };
   });
 
-  // An archived workspace gives its device back. One made for it ("New copy") is turned off, not
+  // An archived workspace gives its devices back. One made for it ("New copy") is turned off, not
   // deleted: archiving can be undone, and a simulator keeps its data until someone deletes it.
   server.on("workspace.archived", async ({ workspace }) => {
     await ready;
-    const held = assignments().find((a) => a.workspaceId === workspace.id);
-    if (!held) return;
-    await setAssignment(held, null, false);
-    if (isOwned(held.deviceId))
-      await turnOff(held.deviceId).catch((error) => console.error("turning off", held.deviceId, error));
+    const held = assignments().filter((a) => a.workspaceId === workspace.id);
+    if (!held.length) return;
+    for (const { deviceId } of held) {
+      // another workspace may have taken it over while an earlier copy turned off
+      if (!(await removeAssignment(workspace.id, deviceId))) continue;
+      if (isOwned(deviceId))
+        await turnOff(deviceId).catch((error) => console.error("turning off", deviceId, error));
+    }
     await syncAgentConfigs();
     listing = null;
   });
@@ -284,11 +320,13 @@ export default function contribute(server: PluginServerContext) {
     await ready;
     let deviceId: string;
     if (from.startsWith("ios:")) {
-      const source = (await ios.listIos()).find((d) => d.id === from);
-      const udid = await ios.createIos(
-        from.slice(4),
-        `${source?.name ?? "iPhone"} (${workspace.workspaceName})`,
-      );
+      const simulators = await ios.listIos();
+      const source = simulators.find((d) => d.id === from);
+      const base = `${source?.name ?? "iPhone"} (${workspace.workspaceName})`;
+      // a second copy for one workspace is "… 2", so the panel's switcher tells them apart
+      let name = base;
+      for (let n = 2; simulators.some((d) => d.name === name); n++) name = `${base} ${n}`;
+      const udid = await ios.createIos(from.slice(4), name);
       deviceId = `ios:${udid}`;
       track(deviceId, ios.bootIos(udid));
     } else if (from.startsWith("avd:")) {
@@ -300,7 +338,7 @@ export default function contribute(server: PluginServerContext) {
       throw new Error("Only simulators and emulators can be copied");
     }
     await setOwned(deviceId, true);
-    await setAssignment(workspace, deviceId, false);
+    await addAssignment(workspace, deviceId, false);
     await syncAgentConfigs();
     listing = null;
     return { deviceId, message: "Starting a new device for this workspace" };
