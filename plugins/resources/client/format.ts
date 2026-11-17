@@ -27,4 +27,7 @@ export function duration(seconds: number): string {
 export const ratio = (used: number, total: number) => (total > 0 ? Math.min(1, used / total) : 0);
 
 /** "1 volume", "3 volumes". */
-export const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+export function count(n: number, noun: string): string {
+  const plural = noun === "process" ? "processes" : `${noun}s`;
+  return `${n} ${n === 1 ? noun : plural}`;
+}

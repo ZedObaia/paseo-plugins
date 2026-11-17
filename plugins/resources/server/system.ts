@@ -10,6 +10,7 @@ import {
   type Snapshot,
 } from "../shared/contracts";
 import { run } from "./exec";
+import { groupProcesses, listLocations, observeProcesses, type ProcessMetrics } from "./processes";
 
 type Memory = Pick<Snapshot, "memory" | "swap">;
 type CpuTimes = { busy: number; total: number; steal: number };
@@ -253,7 +254,9 @@ export function parseLinuxTop(text: string): Map<number, number> {
   return result;
 }
 
-async function processes(): Promise<Pick<Snapshot, "topCpu" | "topMemory" | "apps">> {
+async function processes(
+  paseo: Parameters<typeof listLocations>[0],
+): Promise<Pick<Snapshot, "topCpu" | "topMemory" | "apps" | "processGroups" | "groupingError">> {
   const mac = process.platform === "darwin";
   const [psText, argsText, footprints, recentCpu] = await Promise.all([
     run("ps", ["-axo", "pid=,ppid=,pcpu=,rss=,user=,comm="]),
@@ -272,16 +275,27 @@ async function processes(): Promise<Pick<Snapshot, "topCpu" | "topMemory" | "app
   const args = new Map<number, string>();
   for (const match of argsText.matchAll(/^\s*(\d+)\s+(.*)$/gm)) args.set(Number(match[1]), match[2]);
 
-  const all: ProcessInfo[] = parsePs(psText)
+  const metrics: ProcessMetrics[] = parsePs(psText)
     // skip what this plugin itself spawned: this very `ps`, `top`, docker CLI calls
     .filter((p) => p.ppid !== process.pid)
     .map((p) => ({
       pid: p.pid,
+      ppid: p.ppid,
       name: processName(p.command, args.get(p.pid) ?? ""),
       user: p.user,
       cpuPct: recentCpu.get(p.pid) ?? p.cpuPct,
       memBytes: footprints.get(p.pid) ?? p.rssBytes,
     }));
+  const observed = await observeProcesses(metrics);
+  let groupingError: string | null = null;
+  const workspaces = await listLocations(paseo).catch((error) => {
+    groupingError = error instanceof Error ? error.message : String(error);
+    return [];
+  });
+  const processGroups = groupProcesses(observed, workspaces);
+  const all: ProcessInfo[] = observed.map(
+    ({ uid: _uid, cwd: _cwd, workspaceId: _workspaceId, ...row }) => row,
+  );
   const top = (key: "cpuPct" | "memBytes") => [...all].sort((a, b) => b[key] - a[key]).slice(0, 12);
   const groups = new Map<string, App>();
   for (const p of all) {
@@ -290,7 +304,7 @@ async function processes(): Promise<Pick<Snapshot, "topCpu" | "topMemory" | "app
     groups.set(name, { name, count: (g?.count ?? 0) + 1, memBytes: (g?.memBytes ?? 0) + p.memBytes });
   }
   const apps = [...groups.values()].sort((a, b) => b.memBytes - a.memBytes).slice(0, 10);
-  return { topCpu: top("cpuPct"), topMemory: top("memBytes"), apps };
+  return { topCpu: top("cpuPct"), topMemory: top("memBytes"), apps, processGroups, groupingError };
 }
 
 export async function summary(): Promise<{
@@ -303,13 +317,19 @@ export async function summary(): Promise<{
 }
 
 /** Everything but Docker. A failing part comes back empty rather than failing the whole view. */
-export async function systemSnapshot(): Promise<Omit<Snapshot, "docker">> {
+export async function systemSnapshot(
+  paseo: Parameters<typeof listLocations>[0],
+): Promise<Omit<Snapshot, "docker">> {
   const [mem, diskList, procs] = await Promise.all([
     lastMemory ?? memory(),
     disks().catch((error) => (console.error("disks:", error), [])),
-    processes().catch(
-      (error) => (console.error("processes:", error), { topCpu: [], topMemory: [], apps: [] }),
-    ),
+    processes(paseo).catch((error) => ({
+      topCpu: [],
+      topMemory: [],
+      apps: [],
+      processGroups: [],
+      groupingError: error instanceof Error ? error.message : String(error),
+    })),
   ]);
   const [l1, l5, l15] = os.loadavg();
   return {

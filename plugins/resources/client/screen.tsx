@@ -6,14 +6,13 @@ import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
   dockerActionRpc,
-  signalProcessRpc,
   snapshotRpc,
   type Container,
   type DockerProject,
-  type ProcessInfo,
   type PruneTarget,
   type Snapshot,
 } from "../shared/contracts";
+import { Processes } from "./processes";
 import { bytes, count, duration, memory, pct, ratio } from "./format";
 import {
   Button,
@@ -85,7 +84,7 @@ export function ResourcesScreen({ theme, layout, host }: PluginScreenProps) {
       </View>
       <SystemCards theme={theme} s={s} />
       <MemoryByApp theme={theme} compact={layout.compact} s={s} />
-      <Processes theme={theme} compact={layout.compact} s={s} ask={ask} />
+      <Processes theme={theme} s={s} ask={ask} />
       {s.docker.available ? (
         <DockerSection theme={theme} hostId={host.id} d={s.docker} ask={ask} />
       ) : (
@@ -253,61 +252,6 @@ function MemoryByApp({ theme, compact, s }: { theme: PluginTheme; compact: boole
           Includes compressed memory, like Activity Monitor. Swap fills up when these add up to more than RAM.
         </Text>
       ) : null}
-    </Section>
-  );
-}
-
-function Processes({
-  theme,
-  compact,
-  s,
-  ask,
-}: {
-  theme: PluginTheme;
-  compact: boolean;
-  s: Snapshot;
-  ask: Ask;
-}) {
-  const [by, setBy] = useState<"cpu" | "memory">("cpu");
-  const signal = useRpc(signalProcessRpc);
-  const c = theme.colors;
-  const list = by === "cpu" ? s.topCpu : s.topMemory;
-  const open = (p: ProcessInfo) =>
-    ask({
-      title: `${p.name} (${p.pid})`,
-      message: `Owned by ${p.user}. Terminate asks it to exit; Force quit kills it immediately and can lose unsaved work.`,
-      actions: [
-        { label: "Terminate", danger: true, run: () => signal({ pid: p.pid, signal: "SIGTERM" }) },
-        { label: "Force quit", danger: true, run: () => signal({ pid: p.pid, signal: "SIGKILL" }) },
-      ],
-    });
-  return (
-    <Section
-      theme={theme}
-      title="Top processes"
-      trailing={
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <Button theme={theme} label="CPU" selected={by === "cpu"} onPress={() => setBy("cpu")} />
-          <Button theme={theme} label="Memory" selected={by === "memory"} onPress={() => setBy("memory")} />
-        </View>
-      }
-    >
-      <List theme={theme}>
-        {list.map((p) => (
-          <Row key={p.pid} theme={theme} onPress={() => open(p)}>
-            <Text style={{ color: c.foreground, flex: 1 }} numberOfLines={1}>
-              {p.name}
-            </Text>
-            {compact ? null : (
-              <Text style={{ color: c.foregroundMuted, fontSize: 12, width: 64, textAlign: "right" }}>
-                {p.pid}
-              </Text>
-            )}
-            <Text style={{ color: c.foreground, width: 56, textAlign: "right" }}>{pct(p.cpuPct)}</Text>
-            <Text style={{ color: c.foreground, width: 72, textAlign: "right" }}>{memory(p.memBytes)}</Text>
-          </Row>
-        ))}
-      </List>
     </Section>
   );
 }
