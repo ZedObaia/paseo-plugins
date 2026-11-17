@@ -1,12 +1,15 @@
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import {
   dockerActionRpc,
   signalProcessRpc,
+  previewProcessTreeRpc,
+  signalProcessTreeRpc,
   snapshotRpc,
   summaryRpc,
   type Snapshot,
 } from "./shared/contracts";
 import { dockerAction, dockerSnapshot } from "./server/docker";
+import { createProcessActions } from "./server/process-actions";
 import { startSampler, summary, systemSnapshot } from "./server/system";
 
 /**
@@ -51,12 +54,14 @@ const ACTION_REPLY_MS = 45_000;
 export default function contribute(server: PluginServerContext) {
   const stopSampler = startSampler();
   // `top` (process memory on macOS, recent CPU on Linux) takes about a second: refresh every 5 s at most
-  const system = cachedSource(systemSnapshot, 5_000);
+  let system: ReturnType<typeof cachedSource<Omit<Snapshot, "docker">>> | undefined;
+  const systemFor = (paseo: PluginHandlerContext["paseo"]) =>
+    (system ??= cachedSource(() => systemSnapshot(paseo), 5_000));
   const docker = cachedSource(dockerSnapshot, 8_000);
 
   server.handle(summaryRpc, () => summary());
-  server.handle(snapshotRpc, async (): Promise<Snapshot> => {
-    const [s, d] = await Promise.all([system.get(), docker.get()]);
+  server.handle(snapshotRpc, async (_input, { paseo }): Promise<Snapshot> => {
+    const [s, d] = await Promise.all([systemFor(paseo).get(), docker.get()]);
     return { ...s, docker: d };
   });
   server.handle(dockerActionRpc, async (input) => {
@@ -79,19 +84,17 @@ export default function contribute(server: PluginServerContext) {
       clearTimeout(timer);
     }
   });
-  server.handle(signalProcessRpc, async ({ pid, signal }) => {
-    if (pid === process.pid || pid === process.ppid)
-      throw new Error("That's the Paseo daemon; restart it instead");
-    try {
-      process.kill(pid, signal);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EPERM") throw new Error(`Not allowed: ${pid} belongs to another user`);
-      if (code === "ESRCH") throw new Error(`${pid} already exited`);
-      throw error;
-    }
-    await system.reload(5_000);
-    return { message: `Sent ${signal} to ${pid}` };
+  const processes = createProcessActions();
+  server.handle(signalProcessRpc, async ({ pid, identity, signal }, { paseo }) => {
+    const result = await processes.signal(pid, identity, signal);
+    await systemFor(paseo).reload(5_000);
+    return result;
+  });
+  server.handle(previewProcessTreeRpc, ({ pid, identity }) => processes.preview(pid, identity));
+  server.handle(signalProcessTreeRpc, async ({ token, signal }, { paseo }) => {
+    const result = await processes.signalTree(token, signal);
+    await systemFor(paseo).reload(5_000);
+    return result;
   });
   return () => stopSampler();
 }

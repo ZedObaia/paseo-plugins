@@ -1,3 +1,4 @@
+import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -308,6 +309,7 @@ export function useRunAction(hostId: string) {
 type Action = { label: string; danger?: boolean } & (
   | { run(): Promise<{ message: string }> }
   | { next: Confirmation }
+  | { prepare(): Promise<Confirmation> }
 );
 
 export interface Confirmation {
@@ -324,11 +326,22 @@ export function useConfirm(
   const [pending, setPending] = useState<Confirmation | null>(null);
   const [busy, setBusy] = useState(false);
   const runAction = useRunAction(hostId);
+  const toast = useToast();
   const c = theme.colors;
 
   async function perform(action: Action) {
     if ("next" in action) return setPending(action.next);
     setBusy(true);
+    if ("prepare" in action) {
+      try {
+        setPending(await action.prepare());
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const ok = await runAction(action.run);
     setBusy(false);
     if (ok) setPending(null);
@@ -341,7 +354,9 @@ export function useConfirm(
       onOpenChange={(open) => !open && !busy && setPending(null)}
     >
       <Modal.Content>
-        <Text style={{ color: c.foreground, lineHeight: 20 }}>{pending?.message}</Text>
+        <ScrollView style={{ maxHeight: 360 }}>
+          <Text style={{ color: c.foreground, lineHeight: 20 }}>{pending?.message}</Text>
+        </ScrollView>
         <View
           style={{
             flexDirection: "row",

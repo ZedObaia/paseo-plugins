@@ -9,11 +9,29 @@ const bytes = z.number().nonnegative();
 
 const processInfo = z.object({
   pid: z.number().int(),
+  ppid: z.number().int(),
+  identity: z.string().nullable(),
+  canSignal: z.boolean(),
   name: z.string(),
   user: z.string(),
   cpuPct: z.number(),
   // macOS: footprint including compressed memory, as in Activity Monitor; Linux: resident memory
   memBytes: bytes,
+});
+
+const processGroup = z.object({
+  workspaceId: z.string().nullable(),
+  workspaceName: z.string(),
+  projectId: z.string().nullable(),
+  projectName: z.string(),
+  directory: z.string().nullable(),
+  cpuPct: z.number(),
+  memBytes: bytes,
+  processes: z.array(
+    processInfo.extend({
+      attribution: z.enum(["identity", "ancestor", "directory", "unassigned"]),
+    }),
+  ),
 });
 
 // processes grouped by app: "Google Chrome" for all its helpers, "tsserver" for every tsserver
@@ -85,12 +103,15 @@ const snapshotSchema = z.object({
   topCpu: z.array(processInfo),
   topMemory: z.array(processInfo),
   apps: z.array(app),
+  processGroups: z.array(processGroup),
+  groupingError: z.string().nullable(),
   history: z.array(sample),
   docker,
 });
 
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ProcessInfo = z.infer<typeof processInfo>;
+export type ProcessGroup = z.infer<typeof processGroup>;
 export type App = z.infer<typeof app>;
 export type Sample = z.infer<typeof sample>;
 export type Container = z.infer<typeof container>;
@@ -133,6 +154,26 @@ export const dockerActionRpc = defineRpc({
 
 export const signalProcessRpc = defineRpc({
   name: "resources.process.signal",
-  input: z.object({ pid: z.number().int().min(2), signal: z.enum(["SIGTERM", "SIGKILL"]) }),
+  input: z.object({
+    pid: z.number().int().min(2),
+    identity: z.string(),
+    signal: z.enum(["SIGTERM", "SIGKILL"]),
+  }),
+  output: z.object({ message: z.string() }),
+});
+
+export const previewProcessTreeRpc = defineRpc({
+  name: "resources.process.preview_tree",
+  input: z.object({ pid: z.number().int().min(2), identity: z.string() }),
+  output: z.object({
+    token: z.string(),
+    expiresAt: z.number(),
+    processes: z.array(z.object({ pid: z.number().int(), name: z.string() })),
+  }),
+});
+
+export const signalProcessTreeRpc = defineRpc({
+  name: "resources.process.signal_tree",
+  input: z.object({ token: z.string(), signal: z.enum(["SIGTERM", "SIGKILL"]) }),
   output: z.object({ message: z.string() }),
 });
