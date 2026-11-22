@@ -145,6 +145,58 @@ interface SortFacts {
 }
 
 /** projects/workspace-structure.ts: newest first by the chosen time, then by key. */
+const trimSlash = (path: string) => path.replace(/\/+$/, "");
+
+/** A git project's main checkout: the project's own folder, not a linked worktree. Orca labels it "main". */
+export function isMainCheckout(workspace: {
+  readonly kind: string;
+  readonly directory: string;
+  readonly projectRootPath: string;
+  readonly projectKind: string;
+}): boolean {
+  return (
+    workspace.projectKind === "git" &&
+    (workspace.kind === "local_checkout" || workspace.kind === "checkout") &&
+    trimSlash(workspace.directory) === trimSlash(workspace.projectRootPath)
+  );
+}
+
+/** The folders of a host's git projects that have no main checkout among its (active, shown) workspaces. */
+export function missingMainCheckouts(
+  projects: readonly { readonly projectRootPath: string; readonly projectKind: string }[],
+  workspaces: readonly {
+    readonly workspaceKind: string;
+    readonly workspaceDirectory?: string;
+    readonly projectRootPath: string;
+    readonly projectKind: string;
+  }[],
+): string[] {
+  const have = new Set(
+    workspaces
+      .filter((workspace) =>
+        isMainCheckout({
+          kind: workspace.workspaceKind,
+          directory: workspace.workspaceDirectory ?? workspace.projectRootPath,
+          projectRootPath: workspace.projectRootPath,
+          projectKind: workspace.projectKind,
+        }),
+      )
+      .map((workspace) => trimSlash(workspace.projectRootPath)),
+  );
+  return projects
+    .filter((project) => project.projectKind === "git" && !have.has(trimSlash(project.projectRootPath)))
+    .map((project) => project.projectRootPath);
+}
+
+/** A project's rows: its main checkout first, then the chosen order. */
+export function compareProjectRows(sort: Sort) {
+  const rest = compareWorkspaces(sort);
+  return (
+    a: SortFacts & Parameters<typeof isMainCheckout>[0],
+    b: SortFacts & Parameters<typeof isMainCheckout>[0],
+  ) => Number(isMainCheckout(b)) - Number(isMainCheckout(a)) || rest(a, b);
+}
+
 export function compareWorkspaces(sort: Sort) {
   const time = (item: SortFacts) =>
     Date.parse((sort === "lastPrompt" ? (item.lastPromptAt ?? item.createdAt) : item.createdAt) ?? "") || 0;

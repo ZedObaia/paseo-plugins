@@ -25,6 +25,9 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
 - Project rows with their colored square, a chevron on hover, the status of a collapsed project, and
   **+** for a new workspace. Workspace rows with their status, title, last activity, and on hover
   archive and the workspace menu (copy path or branch, rename, pin, archive).
+- Every git project keeps a workspace for its main checkout, first in the project with a **main**
+  label whatever branch it's on, as in Orca. The sidebar creates it on each host where it's missing
+  (again after it's archived) and offers no Archive for it.
 - The hover card beside a workspace row on desktop and web: its pull request, diff, host, branch
   and path (both copy on press), and its CI checks, which open on GitHub.
 - While an agent works in a workspace, its hover card lists the agent's tasks: done ones checked,

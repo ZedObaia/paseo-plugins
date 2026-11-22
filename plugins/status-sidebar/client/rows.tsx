@@ -31,6 +31,7 @@ import { ProgressLine, useAgentWork, type AgentWork } from "./progress";
 import {
   STATUS_LABELS,
   archiveRisks,
+  isMainCheckout,
   compactTimeAgo,
   formatDiffCount,
   identityColor,
@@ -514,6 +515,8 @@ function WorkspaceRow({
   const selected = view.active.workspace?.key === reference.key;
   const busy = archiving || workspace.archivingAt !== null;
   const pinned = workspace.pinnedAt !== null;
+  // The main checkout always stays, as Orca's does: no archive here, and the sidebar recreates it.
+  const main = isMainCheckout(workspace);
   const device = devices.get(reference.id);
   const editing = renaming && !touch;
   const rowHovered = hovered && !editing;
@@ -629,9 +632,19 @@ function WorkspaceRow({
                       onDone={rename}
                     />
                   ) : (
-                    <Text numberOfLines={1} style={[s.title, rowHovered && s.titleHovered]}>
-                      {title}
-                    </Text>
+                    <View style={s.titleWithPill}>
+                      <Text
+                        numberOfLines={1}
+                        style={[s.title, main && s.titleShrink, rowHovered && s.titleHovered]}
+                      >
+                        {title}
+                      </Text>
+                      {main ? (
+                        <View style={s.mainPill} accessibilityLabel="Main checkout">
+                          <Text style={s.mainPillText}>main</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   )}
                   <View style={s.rowRight}>
                     {device ? (
@@ -651,7 +664,7 @@ function WorkspaceRow({
                         <>
                           {rowHovered && !touch ? <Scrim width={48 + 26} color={backdrop} /> : null}
                           <View style={s.overlay}>
-                            {rowHovered && !touch ? (
+                            {rowHovered && !touch && !main ? (
                               <Pressable
                                 accessibilityRole="button"
                                 accessibilityLabel="Archive workspace"
@@ -718,12 +731,14 @@ function WorkspaceRow({
             label={pinned ? "Unpin" : "Pin to top"}
             onSelect={() => handle.setPinned(!pinned).catch((error: unknown) => toast.error(message(error)))}
           />
-          <MenuItem
-            icon="Archive"
-            label={busy ? "Archiving..." : "Archive"}
-            disabled={busy}
-            onSelect={archive}
-          />
+          {main ? null : (
+            <MenuItem
+              icon="Archive"
+              label={busy ? "Archiving..." : "Archive"}
+              disabled={busy}
+              onSelect={archive}
+            />
+          )}
         </Menu>
       ) : null}
       {renaming && touch ? <RenameModal initial={workspace.title ?? workspace.name} onDone={rename} /> : null}

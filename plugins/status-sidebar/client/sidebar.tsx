@@ -38,7 +38,8 @@ import {
   allocateViewKeys,
   compareProjectNames,
   compareStatusRows,
-  compareWorkspaces,
+  compareProjectRows,
+  missingMainCheckouts,
   labelKey,
   placementId,
   type Bucket,
@@ -120,6 +121,49 @@ function useViewKeys(
   );
 }
 
+const MAIN_CHECKOUT_RETRY_MS = 10 * 60_000;
+
+/**
+ * Every git project keeps a workspace for its main checkout, as Orca keeps one per repository:
+ * on each online host, a project with none gets one, and gets it back after it is archived.
+ * Opening a folder finds or creates its workspace under the daemon's lock, so several apps doing
+ * this at once still make one. A folder that fails waits ten minutes before the next try.
+ */
+function useMainCheckouts(hosts: readonly PluginHostSummary[]) {
+  const online = hosts
+    .filter((host) => host.status === "online")
+    .map((host) => host.serverId)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!online) return;
+    const tried = new Map<string, number>();
+    const busy = new Set<string>();
+    const ensure = async (hostId: string) => {
+      if (busy.has(hostId)) return;
+      busy.add(hostId);
+      try {
+        const api = getPaseoClient(hostId);
+        const [{ projects }, { entries }] = await Promise.all([api.projects.list(), api.workspaces.list()]);
+        for (const root of missingMainCheckouts(projects, entries)) {
+          const key = `${hostId}:${root}`;
+          if (Date.now() - (tried.get(key) ?? 0) < MAIN_CHECKOUT_RETRY_MS) continue;
+          tried.set(key, Date.now());
+          await api.workspaces.open({ cwd: root }).catch(() => undefined);
+        }
+      } catch {
+        // ponytail: a host that can't answer now is asked again on the next round.
+      } finally {
+        busy.delete(hostId);
+      }
+    };
+    const round = () => online.split(",").forEach((hostId) => void ensure(hostId));
+    round();
+    const timer = setInterval(round, 60_000);
+    return () => clearInterval(timer);
+  }, [online]);
+}
+
 function toggle(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter((entry) => entry !== key) : [...list, key];
 }
@@ -138,6 +182,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   const { s } = useUi();
   const [prefs, update] = usePrefs();
   const hosts = useHosts();
+  useMainCheckouts(hosts);
   const hostFilters = prefs.hostFilters.filter((id) => hosts.some((host) => host.serverId === id));
   const scope = hostFilters.length ? hostFilters : undefined;
   const viewKey = useViewKeys(hosts);
@@ -297,7 +342,7 @@ function ProjectBlock({ group }: { group: Group<ProjectRef> }) {
   const name = group.title ?? group.key;
   const where = (workspace: PluginWorkspaceSnapshot) =>
     projectOf(workspace) === group.key && workspace.pinnedAt === null && visible(workspace);
-  const refs = useWorkspaces({ hosts: scope, where, orderBy: compareWorkspaces(prefs.sort) });
+  const refs = useWorkspaces({ hosts: scope, where, orderBy: compareProjectRows(prefs.sort) });
   const byStatus = useWorkspaces({ hosts: scope, where, groupBy: (workspace) => workspace.indicator });
   const active = new Set(
     byStatus.filter((entry) => entry.key !== "done").flatMap((entry) => entry.items.map((ref) => ref.key)),

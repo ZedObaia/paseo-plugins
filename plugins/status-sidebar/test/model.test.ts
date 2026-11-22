@@ -22,6 +22,9 @@ import {
   shortenPath,
   statusFromMetadata,
   taskProgress,
+  compareProjectRows,
+  isMainCheckout,
+  missingMainCheckouts,
   taskWindow,
   stepContrast,
 } from "../client/model";
@@ -261,4 +264,55 @@ test("the hover card's task list: all of a short one, else a window from just be
   assert.deepEqual([finished.shown.at(-1)?.text, finished.before, finished.after], ["Step 20", 8, 0]);
   const waiting = taskWindow(list(15, 20, false), 12);
   assert.deepEqual([waiting.shown[0]?.text, waiting.before], ["Step 9", 8]);
+});
+
+test("main checkouts: the project's own folder in a git project, first among its rows", () => {
+  const ws = (kind: string, directory: string, projectKind = "git") => ({
+    kind,
+    directory,
+    projectRootPath: "/w/app",
+    projectKind,
+  });
+  assert.equal(isMainCheckout(ws("local_checkout", "/w/app")), true);
+  assert.equal(isMainCheckout(ws("local_checkout", "/w/app/")), true);
+  assert.equal(isMainCheckout(ws("worktree", "/w/.paseo/worktrees/x")), false);
+  assert.equal(isMainCheckout(ws("local_checkout", "/w/app/sub")), false);
+  assert.equal(isMainCheckout(ws("directory", "/w/app", "directory")), false);
+
+  const wire = (workspaceKind: string, projectRootPath: string, workspaceDirectory?: string) => ({
+    workspaceKind,
+    projectRootPath,
+    projectKind: "git",
+    ...(workspaceDirectory ? { workspaceDirectory } : {}),
+  });
+  assert.deepEqual(
+    missingMainCheckouts(
+      [
+        { projectRootPath: "/w/app", projectKind: "git" },
+        { projectRootPath: "/w/api", projectKind: "git" },
+        { projectRootPath: "/w/notes", projectKind: "directory" },
+      ],
+      [wire("local_checkout", "/w/app"), wire("worktree", "/w/api", "/w/.paseo/worktrees/api-1")],
+    ),
+    ["/w/api"],
+  );
+
+  const row = (key: string, kind: string, directory: string, createdAt: string) => ({
+    ref: { key },
+    createdAt,
+    lastPromptAt: null,
+    kind,
+    directory,
+    projectRootPath: "/w/app",
+    projectKind: "git",
+  });
+  const rows = [
+    row("new", "worktree", "/w/t/new", "2026-11-03"),
+    row("main", "local_checkout", "/w/app", "2026-01-01"),
+    row("old", "worktree", "/w/t/old", "2026-11-01"),
+  ];
+  assert.deepEqual(
+    [...rows].sort(compareProjectRows("created")).map((entry) => entry.ref.key),
+    ["main", "new", "old"],
+  );
 });

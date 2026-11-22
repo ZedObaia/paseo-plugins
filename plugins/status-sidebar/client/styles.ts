@@ -143,6 +143,18 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       minWidth: 0,
     },
     titleHovered: { opacity: 1 },
+    titleWithPill: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
+    titleShrink: { flex: 0, flexShrink: 1 },
+    mainPill: {
+      height: 16,
+      paddingHorizontal: 5,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: p.borderAccent,
+      justifyContent: "center",
+      flexShrink: 0,
+    },
+    mainPillText: { color: c.foregroundMuted, fontSize: 10, lineHeight: 12 },
     titleEditor: {
       height: 20,
       flex: 1,
