@@ -6,13 +6,13 @@ import { defineAgentTool, type AgentToolDefinition } from "@getpaseo/plugin/serv
 import { z } from "zod";
 import { PROGRESS_KEY } from "../shared/progress";
 
-export const INSTRUCTIONS =
-  "Progress in the Paseo sidebar: for a task with three or more steps, show the user your progress. " +
-  "If you have a task-list tool (TaskCreate and TaskUpdate or TodoWrite in Claude Code, loaded with ToolSearch " +
-  "if they are deferred; the plan tool in Codex; a todo tool elsewhere), create the list before the first step, " +
-  'keep exactly one item in progress with a short present-tense label such as "Running the test suite", and mark ' +
-  "items completed as you finish them. Without one, call report_progress at each step with that label and the " +
-  "share done. Skip this for quick one-step answers.";
+export const INSTRUCTIONS = [
+  "Progress in the Paseo sidebar: the user follows your work from their sidebar, so for any task with three or more steps, always report your progress; don't skip it.",
+  "In Claude Code use TaskCreate and TaskUpdate (load them with ToolSearch first if they are deferred): create one task per step before you start, set each to in_progress as you begin it and to completed when it is done.",
+  "In Codex keep the plan tool updated the same way.",
+  'Any other agent, or one without a task tool, calls report_progress (mcp__paseo__report_progress in Claude Code) at each step with a short present-tense label such as "Running the test suite" and the share done.',
+  "Skip it only for quick one-step answers.",
+].join(" ");
 
 export const reportProgress = defineAgentTool({
   name: "report_progress",
