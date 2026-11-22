@@ -27,6 +27,8 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
   archive and the workspace menu (copy path or branch, rename, pin, archive).
 - The hover card beside a workspace row on desktop and web: its pull request, diff, host, branch
   and path (both copy on press), and its CI checks, which open on GitHub.
+- While an agent works in a workspace, its hover card lists the agent's tasks: done ones checked,
+  the current one with a running dot, and the ones still to do, with how many are done.
 - Archiving a worktree asks first only when it has uncommitted changes or unpushed commits, as in
   Paseo.
 - Hovered rows are a clear step brighter than Paseo's, and the selected row brighter still.

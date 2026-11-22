@@ -297,6 +297,12 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       justifyContent: "flex-end",
     },
     hoverCardCount: { flexDirection: "row", alignItems: "center", gap: 3 },
+    hoverCardTasks: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, gap: 6 },
+    hoverCardTasksHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
+    hoverCardTask: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+    hoverCardTaskIcon: { height: 16, justifyContent: "center" },
+    hoverCardTaskText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
+    hoverCardMore: { color: c.foregroundMuted, fontSize: 11, paddingLeft: 18 },
 
     card: { marginTop: 12, padding: 16, borderWidth: 1, borderColor: c.border, borderRadius: 8, gap: 4 },
     cardTitle: { color: c.foreground, fontSize: 12 },

@@ -365,15 +365,32 @@ export interface Progress {
   readonly fraction: number | null;
 }
 
+export const taskDone = (item: TaskItem) => item.completed || item.status === "completed";
+
 /** An agent's newest task list (Claude's todos, Codex's plan) as "2 of 4 · <current step>". */
 export function taskProgress(items: readonly TaskItem[]): Progress | null {
   if (!items.length) return null;
-  const finished = (item: TaskItem) => item.completed || item.status === "completed";
-  const done = items.filter(finished).length;
+  const done = items.filter(taskDone).length;
   const current =
-    items.find((item) => item.status === "in_progress") ?? items.find((item) => !finished(item));
+    items.find((item) => item.status === "in_progress") ?? items.find((item) => !taskDone(item));
   const step = current ? (current.status === "in_progress" && current.activeForm) || current.text : "Done";
   return { text: `${done} of ${items.length} · ${step.trim()}`, fraction: done / items.length };
+}
+
+/**
+ * At most `max` tasks for the hover card, from a little before the current one (the one in
+ * progress, else the first not done, else the last), with how many are left out on each side.
+ */
+export function taskWindow(
+  items: readonly TaskItem[],
+  max = 12,
+): { shown: readonly TaskItem[]; before: number; after: number } {
+  if (items.length <= max) return { shown: items, before: 0, after: 0 };
+  const running = items.findIndex((item) => item.status === "in_progress" && !taskDone(item));
+  const next = items.findIndex((item) => !taskDone(item));
+  const current = running !== -1 ? running : next !== -1 ? next : items.length - 1;
+  const start = Math.max(0, Math.min(current - 3, items.length - max));
+  return { shown: items.slice(start, start + max), before: start, after: items.length - start - max };
 }
 
 /** What a bot said about itself with set_status: `{ text, progress }`, progress 0–1. */

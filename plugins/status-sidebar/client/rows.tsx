@@ -27,7 +27,7 @@ import type { z } from "zod";
 import type { preferences } from "../shared/preferences";
 import { useHoverCard } from "./hover-card";
 import { Menu, MenuItem, type PressState } from "./menu";
-import { ProgressLine, useAgentProgress } from "./progress";
+import { ProgressLine, useAgentWork, type AgentWork } from "./progress";
 import {
   STATUS_LABELS,
   archiveRisks,
@@ -496,11 +496,14 @@ function WorkspaceRow({
   const [archiving, setArchiving] = useState(false);
   const kebab = useRef<View>(null);
   const row = useRef<View>(null);
+  /** The working agent's progress and tasks, from RunningProgress, for the hover card. */
+  const [work, setWork] = useState<AgentWork | null>(null);
   const card = useHoverCard({
     anchor: row,
     enabled: !touch && !menuOpen && !renaming && !risks,
     reference,
     workspace: workspace ?? null,
+    work: workspace?.indicator === "running" ? work : null,
   });
   if (!workspace) return null;
 
@@ -691,7 +694,9 @@ function WorkspaceRow({
                   </View>
                 </View>
                 <MetaRow branch={branch} project={project} host={host} labels={workspace.labels} />
-                {workspace.indicator === "running" ? <RunningProgress reference={reference} /> : null}
+                {workspace.indicator === "running" ? (
+                  <RunningProgress reference={reference} onWork={setWork} />
+                ) : null}
               </View>
             </View>
           );
@@ -740,13 +745,21 @@ function WorkspaceRow({
 }
 
 /** A running workspace's newest agent: its bot status or task list, under the row. */
-function RunningProgress({ reference }: { reference: WorkspaceRef }) {
+function RunningProgress({
+  reference,
+  onWork,
+}: {
+  reference: WorkspaceRef;
+  onWork(work: AgentWork | null): void;
+}) {
   const running = useAgents({
     where: (agent) => agent.workspace.key === reference.key && agent.status === "running",
     orderBy: ["lastActivityAt", "desc"],
   });
-  const progress = useAgentProgress(useAgent(running[0] ?? ""));
-  return progress ? <ProgressLine progress={progress} /> : null;
+  const work = useAgentWork(useAgent(running[0] ?? ""));
+  useEffect(() => onWork(work), [work]);
+  useEffect(() => () => onWork(null), []);
+  return work.progress ? <ProgressLine progress={work.progress} /> : null;
 }
 
 /** Touch layouts rename in a modal (workspace-rename/internal/modal.tsx). */

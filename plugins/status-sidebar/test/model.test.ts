@@ -22,6 +22,7 @@ import {
   shortenPath,
   statusFromMetadata,
   taskProgress,
+  taskWindow,
   stepContrast,
 } from "../client/model";
 
@@ -235,4 +236,29 @@ test("attention: permission needs input, errors failed, finished turns are ready
   assert.equal(agentAttention({ requiresAttention: false, attentionReason: "finished" }), null);
   assert.equal(chatTitle("[fawzy] Morning digest"), "Morning digest");
   assert.equal(chatTitle(null), "New chat");
+});
+
+test("the hover card's task list: all of a short one, else a window from just before the current task", () => {
+  const list = (done: number, total: number, running = true) =>
+    Array.from({ length: total }, (_, i) => ({
+      text: `Step ${i + 1}`,
+      completed: i < done,
+      status: (i < done ? "completed" : i === done && running ? "in_progress" : "pending") as
+        | "completed"
+        | "in_progress"
+        | "pending",
+    }));
+  const short = taskWindow(list(1, 5));
+  assert.deepEqual([short.shown.length, short.before, short.after], [5, 0, 0]);
+  const middle = taskWindow(list(10, 20), 12);
+  assert.deepEqual(
+    [middle.shown[0]?.text, middle.shown.length, middle.before, middle.after],
+    ["Step 8", 12, 7, 1],
+  );
+  const start = taskWindow(list(1, 20), 12);
+  assert.deepEqual([start.shown[0]?.text, start.before, start.after], ["Step 1", 0, 8]);
+  const finished = taskWindow(list(20, 20), 12);
+  assert.deepEqual([finished.shown.at(-1)?.text, finished.before, finished.after], ["Step 20", 8, 0]);
+  const waiting = taskWindow(list(15, 20, false), 12);
+  assert.deepEqual([waiting.shown[0]?.text, waiting.before], ["Step 9", 8]);
 });

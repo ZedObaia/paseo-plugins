@@ -1,6 +1,7 @@
 // Paseo's workspace hover card (components/workspace-hover-card.tsx on ui/hover-card.tsx): beside a
 // row on wide layouts it names the workspace and lists its PR, diff, host, branch and path, then
-// its CI checks. Branch and path copy on press; the PR and its checks open in the browser.
+// its CI checks, and while an agent works there its task list: done, current and still to do.
+// Branch and path copy on press; the PR and its checks open in the browser.
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Platform, Pressable, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
@@ -15,8 +16,12 @@ import {
   formatDiffCount,
   prHint,
   shortenPath,
+  taskDone,
+  taskWindow,
   type CheckKind,
+  type TaskItem,
 } from "./model";
+import type { AgentWork } from "./progress";
 import { UiContext, useUi } from "./styles";
 
 interface Rect {
@@ -87,11 +92,14 @@ export function useHoverCard({
   enabled,
   reference,
   workspace,
+  work,
 }: {
   anchor: RefObject<View | null>;
   enabled: boolean;
   reference: WorkspaceRef;
   workspace: PluginWorkspaceSnapshot | null;
+  /** The working agent's progress and tasks; the card's own root can't read agents itself. */
+  work: AgentWork | null;
 }) {
   const ui = useUi();
   const [rect, setRect] = useState<Rect | null>(null);
@@ -115,12 +123,13 @@ export function useHoverCard({
           rect={open}
           reference={reference}
           workspace={workspace}
+          work={work}
           onEnter={cancel}
           onLeave={leave}
         />
       </UiContext.Provider>,
     );
-  }, [open, workspace, reference, ui]);
+  }, [open, workspace, reference, ui, work]);
   const shown = open !== null;
   useEffect(() => {
     if (!shown) return;
@@ -153,12 +162,14 @@ function HoverCard({
   rect,
   reference,
   workspace,
+  work,
   onEnter,
   onLeave,
 }: {
   rect: Rect;
   reference: WorkspaceRef;
   workspace: PluginWorkspaceSnapshot;
+  work: AgentWork | null;
   onEnter(): void;
   onLeave(): void;
 }) {
@@ -271,6 +282,81 @@ function HoverCard({
           </Pressable>
         </>
       ) : null}
+      {work && (work.items.length || work.progress) ? <Tasks work={work} /> : null}
+    </View>
+  );
+}
+
+/**
+ * The working agent's task list, as Paseo's own (components/task-list-row.tsx): done ones checked
+ * and struck through, the current one in full colour with its running dot, the rest as rings. An
+ * agent that reports progress without a list shows that line instead.
+ */
+function Tasks({ work }: { work: AgentWork }) {
+  const { s, c, p } = useUi();
+  const { shown, before, after } = taskWindow(work.items);
+  const done = work.items.filter(taskDone).length;
+  return (
+    <>
+      <View style={s.hoverCardSeparator} />
+      <View style={s.hoverCardTasks}>
+        <View style={s.hoverCardTasksHeader}>
+          <Text style={s.hoverCardLabel}>Tasks</Text>
+          {work.items.length ? (
+            <Text style={s.hoverCardLabel}>
+              {done} of {work.items.length}
+            </Text>
+          ) : null}
+        </View>
+        {work.items.length === 0 && work.progress ? (
+          <TaskRow icon="CircleDot" color={p.dot.running} text={work.progress.text} tone={c.foreground} />
+        ) : null}
+        {before ? <Text style={s.hoverCardMore}>{before} done before</Text> : null}
+        {shown.map((item, index) => (
+          <Task key={`${before + index}:${item.text}`} item={item} />
+        ))}
+        {after ? <Text style={s.hoverCardMore}>{after} more</Text> : null}
+      </View>
+    </>
+  );
+}
+
+function Task({ item }: { item: TaskItem }) {
+  const { c, p } = useUi();
+  const finished = taskDone(item);
+  const running = !finished && item.status === "in_progress";
+  const text = (running && item.activeForm) || item.text;
+  if (finished)
+    return <TaskRow icon="CircleCheck" color={p.extraMuted} text={text} tone={p.extraMuted} struck />;
+  if (running) return <TaskRow icon="CircleDot" color={p.dot.running} text={text} tone={c.foreground} />;
+  return <TaskRow icon="Circle" color={p.extraMuted} text={text} tone={c.foregroundMuted} />;
+}
+
+function TaskRow({
+  icon,
+  color,
+  text,
+  tone,
+  struck = false,
+}: {
+  icon: string;
+  color: string;
+  text: string;
+  tone: string;
+  struck?: boolean;
+}) {
+  const { s } = useUi();
+  return (
+    <View style={s.hoverCardTask} accessibilityLabel={text}>
+      <View style={s.hoverCardTaskIcon}>
+        <Icon name={icon} size={12} color={color} />
+      </View>
+      <Text
+        numberOfLines={2}
+        style={[s.hoverCardTaskText, { color: tone }, struck && { textDecorationLine: "line-through" }]}
+      >
+        {text}
+      </Text>
     </View>
   );
 }

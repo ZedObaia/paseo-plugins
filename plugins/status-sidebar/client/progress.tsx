@@ -1,7 +1,7 @@
 // Progress under a running row: what a bot said with Fawzy's set_status tool, else the agent's
 // newest task list (Claude's todos, Codex's plan), followed live from its timeline.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { getPaseoClient } from "@getpaseo/plugin/client";
 import type { PluginAgentSnapshot } from "@getpaseo/plugin";
@@ -17,20 +17,32 @@ import { useUi } from "./styles";
 
 type TimelineItem = { type: string; items?: readonly TaskItem[] };
 
+/** What the agent is doing: its progress line, and while it runs, its task list (possibly empty). */
+export interface AgentWork {
+  readonly progress: Progress | null;
+  readonly items: readonly TaskItem[];
+}
+
+const NO_TASKS: readonly TaskItem[] = [];
+
 export function useAgentProgress(agent: PluginAgentSnapshot | null | undefined): Progress | null {
+  return useAgentWork(agent).progress;
+}
+
+export function useAgentWork(agent: PluginAgentSnapshot | null | undefined): AgentWork {
   const said = agent
     ? (statusFromMetadata(agent.metadata[PROGRESS_KEY]) ?? statusFromMetadata(agent.metadata[BOT_STATUS_KEY]))
     : null;
   const running = agent?.status === "running";
   const host = agent?.hostId;
   const id = agent?.id;
-  const [tasks, setTasks] = useState<Progress | null>(null);
+  const [tasks, setTasks] = useState<readonly TaskItem[]>(NO_TASKS);
   useEffect(() => {
-    setTasks(null);
+    setTasks(NO_TASKS);
     if (!running || !host || !id) return;
     let live = true;
     const take = (item: TimelineItem) => {
-      if (live && item.type === "todo") setTasks(taskProgress(item.items ?? []));
+      if (live && item.type === "todo") setTasks(item.items ?? NO_TASKS);
     };
     const timeline = getPaseoClient(host).agents.ref(id).timeline;
     // The running turn holds the list the agent keeps rewriting; the last one wins.
@@ -47,7 +59,11 @@ export function useAgentProgress(agent: PluginAgentSnapshot | null | undefined):
       stop();
     };
   }, [running, host, id]);
-  return said ?? (running ? tasks : null);
+  const items = running ? tasks : NO_TASKS;
+  return useMemo(
+    () => ({ progress: said ?? taskProgress(items), items }),
+    [said?.text, said?.fraction, items],
+  );
 }
 
 /** "2 of 4 · Replying on GitHub" over a thin bar. */
