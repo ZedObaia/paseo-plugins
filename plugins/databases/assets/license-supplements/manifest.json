@@ -1,0 +1,106 @@
+[
+  {
+    "file": "libsql-client-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/tursodatabase/libsql-client-ts/9496c782af413f6380235c7f5d0c97b5371f49b7/LICENSE",
+    "packages": ["@libsql/client@0.18.0", "@libsql/core@0.18.0"]
+  },
+  {
+    "file": "libsql-js-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/tursodatabase/libsql-js/55bee86d1c284f1ddf2b9e280e870d2b6cef884a/LICENSE",
+    "packages": [
+      "@libsql/darwin-arm64@0.5.29",
+      "@libsql/darwin-x64@0.5.29",
+      "@libsql/linux-arm-gnueabihf@0.5.29",
+      "@libsql/linux-arm-musleabihf@0.5.29",
+      "@libsql/linux-arm64-gnu@0.5.29",
+      "@libsql/linux-arm64-musl@0.5.29",
+      "@libsql/linux-x64-gnu@0.5.29",
+      "@libsql/linux-x64-musl@0.5.29",
+      "@libsql/win32-x64-msvc@0.5.29"
+    ]
+  },
+  {
+    "file": "isomorphic-ws-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/libsql/isomorphic-ts/87331abc53d4e77deb2f3d6384438d4804a07e0a/LICENSE",
+    "packages": ["@libsql/isomorphic-ws@0.1.5"]
+  },
+  {
+    "file": "sentry-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/getsentry/sentry-javascript/042e228984d2d11fecc1de849c59bfbe8a1c42af/LICENSE",
+    "packages": ["@sentry/server-utils@10.76.2"]
+  },
+  {
+    "file": "radix-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/radix-ui/primitives/fcef0668a5c827e5a4baac405474d75680f9a4eb/LICENSE",
+    "packages": [
+      "@radix-ui/number@1.1.1",
+      "@radix-ui/react-compose-refs@1.1.2",
+      "@radix-ui/react-context@1.1.2",
+      "@radix-ui/react-direction@1.1.1",
+      "@radix-ui/react-id@1.1.1",
+      "@radix-ui/react-use-callback-ref@1.1.1",
+      "@radix-ui/react-use-escape-keydown@1.1.1",
+      "@radix-ui/react-use-layout-effect@1.1.1",
+      "@radix-ui/react-use-previous@1.1.1",
+      "@radix-ui/react-use-size@1.1.1"
+    ]
+  },
+  {
+    "file": "uiw-json-view-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/uiwjs/react-json-view/aa60beb2a269efa98b2dcb3b271f01d64574eef6/LICENSE",
+    "packages": ["@uiw/react-json-view@2.0.0-alpha.42"]
+  },
+  {
+    "file": "CC0-1.0.txt",
+    "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/CC0-1.0.txt",
+    "packages": ["railroad-diagrams@1.0.0"]
+  },
+  {
+    "file": "promise-limit-ISC.txt",
+    "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/ISC.txt",
+    "packages": ["promise-limit@2.7.0"]
+  },
+  {
+    "file": "../DB-STUDIO-LICENSE",
+    "source": "https://github.com/husamql3/db-studio/blob/48e80fface43d5b0b8145e5296fab6103ca99cd0/LICENSE",
+    "packages": ["db-studio@1.20.0"]
+  },
+  {
+    "file": "react-remove-scroll-bar-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/theKashey/react-remove-scroll-bar/8ca9ba5ea52de03308fe8ced94f7b159a44d28ff/LICENSE",
+    "packages": ["react-remove-scroll-bar@2.3.8"]
+  },
+  {
+    "file": "ai-elements-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/vercel/ai-elements/ca8be600bfd01b3131f9bf6134b51602a71f4374/LICENSE",
+    "packages": [],
+    "vendored": {
+      "name": "vercel/ai-elements",
+      "license": "Apache-2.0"
+    }
+  },
+  {
+    "file": "shadcn-ui-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/shadcn-ui/ui/ca2d61c1366d5c32b99431d9ff80b0b7d70936e8/LICENSE.md",
+    "packages": [],
+    "vendored": {
+      "name": "shadcn-ui/ui",
+      "license": "MIT"
+    }
+  },
+  {
+    "file": "kibo-ui-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/haydenbleasel/kibo/3d63cdb15b79d972e3dc38a10997987672f9b263/license.md",
+    "packages": [],
+    "vendored": {
+      "name": "haydenbleasel/kibo",
+      "license": "MIT"
+    }
+  },
+  {
+    "file": "posthog-js-LICENSE.txt",
+    "source": "https://registry.npmjs.org/posthog-js/-/posthog-js-1.372.10.tgz",
+    "packages": ["posthog-js@1.372.10"],
+    "license": "Apache-2.0"
+  }
+]

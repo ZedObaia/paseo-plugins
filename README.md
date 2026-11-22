@@ -2,11 +2,12 @@
 
 Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 
-| Plugin                                                         | What it does                                                                                               |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                     |
-| [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                 |
-| [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing |
+| Plugin                                                         | What it does                                                                                                                             |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                                                   |
+| [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                                               |
+| [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing                               |
+| [Databases](plugins/databases/OVERVIEW.md)                     | PostgreSQL discovery per workspace, SQLite files, db-studio browsing and editing, schema completion, and queries drafted by Paseo agents |
 
 ## Install
 
@@ -16,6 +17,7 @@ Turn on **Settings → Plugins → Enable plugins** on the host, then:
 paseo plugin add zedobaia/resources                                    # from the Paseo registry
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/devices
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/projects-everywhere
+paseo plugin add git:ZedObaia/paseo-plugins:plugins/databases
 ```
 
 Each plugin runs on the daemon you install it into, so install Resources on every host you want to
@@ -39,4 +41,5 @@ uses React Native primitives and takes colors from the theme. Server code (`inde
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The Databases plugin includes a modified db-studio frontend under
+[Apache-2.0](plugins/databases/assets/DB-STUDIO-LICENSE); see its [upstream notes](plugins/databases/assets/UPSTREAM.md).

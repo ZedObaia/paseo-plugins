@@ -1,0 +1,45 @@
+{
+  "name": "paseo-plugin-databases",
+  "version": "0.1.0",
+  "description": "Explore workspace PostgreSQL databases and SQLite files with db-studio.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZedObaia/paseo-plugins.git",
+    "directory": "plugins/databases"
+  },
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "test": "tsx --test server/*.test.ts",
+    "build:studio": "node server/build-studio.mjs",
+    "prepare:studio": "node server/prepare-studio.mjs",
+    "licenses": "node server/licenses.mjs",
+    "licenses:check": "node server/licenses.mjs --check",
+    "audit:dependencies": "npm audit && node server/audit-frontend.mjs",
+    "test:integration": "tsx server/integration.ts"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.12.0",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.15.5",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  },
+  "dependencies": {
+    "db-studio": "1.20.0",
+    "dotenv": "^17.2.3",
+    "pg": "^8.16.3",
+    "sql-formatter": "^15.6.10"
+  },
+  "overrides": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "@azure/msal-node": "7.1.0"
+  },
+  "type": "module"
+}
