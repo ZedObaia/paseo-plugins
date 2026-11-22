@@ -1,0 +1,467 @@
+"use client";
+
+// Modified for Paseo: use background Paseo agents and the host's model catalog.
+import { CHAT_SUGGESTIONS } from "@db-studio/shared/constants";
+import { Button } from "@db-studio/ui/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@db-studio/ui/select";
+import { useNavigate } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	Conversation,
+	ConversationContent,
+	ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { LoadingText } from "@/components/ai-elements/loading-text";
+import {
+	Message,
+	MessageBranch,
+	MessageBranchContent,
+	MessageContent,
+	MessageResponse,
+} from "@/components/ai-elements/message";
+import {
+	PromptInput,
+	PromptInputBody,
+	PromptInputFooter,
+	PromptInputSubmit,
+	PromptInputTextarea,
+} from "@/components/ai-elements/prompt-input";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { SheetSidebar } from "@/components/sheet-sidebar";
+import { useAssistantRequestStore } from "@/features/ai-assistant";
+import { api } from "@/shared/api/client";
+import { useDatabaseStore } from "@/stores/database.store";
+import { useOverlayStore } from "@/stores/overlay.store";
+import { useQueriesStore } from "@/stores/queries.store";
+
+type Job = {
+	id: string;
+	status: "running" | "done" | "error" | "cancelled";
+	sql?: string;
+	explanation?: string;
+	error?: string;
+};
+type ChatMessage = {
+	id: string;
+	role: "user" | "assistant";
+	content: string;
+	sql?: string;
+	context?: string;
+};
+type Model = { id: string; label: string; provider: string };
+
+const messageText = (message: ChatMessage) =>
+	message.sql
+		? [message.content, "", "```sql", message.sql, "```"].join("\n")
+		: message.content;
+
+const ChatSidebarContent = ({ db }: { db: string | null }) => {
+	const navigate = useNavigate();
+	const { addQuery, updateQuery } = useQueriesStore();
+	const { isOverlayOpen, closeOverlay } = useOverlayStore();
+	const { pendingPrompt, consumePrompt } = useAssistantRequestStore();
+	const open = isOverlayOpen("chat.assistant");
+	const [text, setText] = useState("");
+	const [messages, setMessages] = useState<ChatMessage[]>([]);
+	const [job, setJob] = useState<Job | null>(null);
+	const [starting, setStarting] = useState(false);
+	const [stopping, setStopping] = useState(false);
+	const [inserting, setInserting] = useState(false);
+	const [error, setError] = useState("");
+	const [models, setModels] = useState<Model[]>([]);
+	const [model, setModel] = useState("default");
+	const [modelsLoading, setModelsLoading] = useState(false);
+	const [modelsError, setModelsError] = useState("");
+	const live = useRef(true);
+	const busy = useRef(false);
+	const activeJob = useRef<string | null>(null);
+	const draftContext = useRef("");
+	const isLoading = starting || job?.status === "running";
+	const context = () =>
+		String(api.defaults.headers.common["X-Connection-Id"] ?? "") + ":" + db;
+
+	useEffect(() => {
+		live.current = true;
+		return () => {
+			live.current = false;
+			if (activeJob.current)
+				void fetch("/paseo/jobs/" + activeJob.current, { method: "DELETE" }).catch(() => {});
+		};
+	}, []);
+
+	const loadModels = useCallback(async (signal?: AbortSignal) => {
+		setModelsLoading(true);
+		setModelsError("");
+		try {
+			const response = await fetch("/paseo/models", { signal });
+			const data = await response.json();
+			if (!response.ok) throw new Error(data.error);
+			if (!live.current || signal?.aborted) return;
+			setModels(data.models);
+			setModel((previous) =>
+				previous === "default" || data.models.some((entry: Model) => entry.id === previous)
+					? previous
+					: "default",
+			);
+		} catch (e) {
+			if (live.current && !signal?.aborted)
+				setModelsError(e instanceof Error ? e.message : String(e));
+		} finally {
+			if (live.current && !signal?.aborted) setModelsLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!open) return;
+		const controller = new AbortController();
+		void loadModels(controller.signal);
+		return () => controller.abort();
+	}, [open, loadModels]);
+
+	const receiveJob = useCallback((next: Job) => {
+		setJob(next);
+		if (next.status === "running") return;
+		activeJob.current = null;
+		busy.current = false;
+		if (next.status === "error")
+			setError(next.error || "The agent could not generate a query. Try again.");
+		if (next.status === "done" && next.sql) {
+			setMessages((previous) =>
+				previous.some((message) => message.id === next.id)
+					? previous
+					: [
+							...previous,
+							{
+								id: next.id,
+								role: "assistant",
+								content: next.explanation ?? "",
+								sql: next.sql,
+								context: draftContext.current,
+							},
+						],
+			);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!job || job.status !== "running") return;
+		const timer = setInterval(async () => {
+			try {
+				const response = await fetch("/paseo/jobs/" + job.id);
+				const next = await response.json();
+				if (!response.ok) throw new Error(next.error);
+				if (live.current && activeJob.current === job.id) receiveJob(next);
+			} catch (e) {
+				if (live.current && activeJob.current === job.id)
+					setError(e instanceof Error ? e.message : String(e));
+			}
+		}, 1000);
+		return () => clearInterval(timer);
+	}, [job, receiveJob]);
+
+	const sendMessage = useCallback(
+		async (request: string) => {
+			if (!request.trim() || !db || busy.current) return;
+			busy.current = true;
+			setStarting(true);
+			setError("");
+			setJob(null);
+			setText("");
+			draftContext.current =
+				String(api.defaults.headers.common["X-Connection-Id"] ?? "") + ":" + db;
+			setMessages((previous) => [
+				...previous,
+				{ id: crypto.randomUUID(), role: "user", content: request },
+			]);
+			try {
+				const response = await fetch("/paseo/generate", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						"x-connection-id": String(api.defaults.headers.common["X-Connection-Id"] ?? ""),
+					},
+					body: JSON.stringify({
+						prompt: request,
+						database: db,
+						provider: model === "default" ? undefined : model,
+						history: messages
+							.slice(-12)
+							.map((message) => ({ role: message.role, content: messageText(message) })),
+					}),
+				});
+				const next = await response.json();
+				if (!response.ok) throw new Error(next.error);
+				if (!live.current) {
+					if (next.status === "running")
+						void fetch("/paseo/jobs/" + next.id, { method: "DELETE" }).catch(() => {});
+					return;
+				}
+				activeJob.current = next.status === "running" ? next.id : null;
+				receiveJob(next);
+			} catch (e) {
+				if (live.current) {
+					busy.current = false;
+					setError(e instanceof Error ? e.message : String(e));
+				}
+			} finally {
+				if (live.current) setStarting(false);
+			}
+		},
+		[db, messages, model, receiveJob],
+	);
+
+	useEffect(() => {
+		if (!pendingPrompt || !db || !open || busy.current) return;
+		consumePrompt();
+		void sendMessage(pendingPrompt);
+	}, [pendingPrompt, db, open, consumePrompt, sendMessage]);
+
+	async function stop() {
+		const id = activeJob.current;
+		if (!id || stopping) return;
+		setStopping(true);
+		activeJob.current = null;
+		try {
+			const response = await fetch("/paseo/jobs/" + id, { method: "DELETE" });
+			const next = await response.json();
+			if (!response.ok) throw new Error(next.error);
+			if (live.current) receiveJob(next);
+		} catch (e) {
+			if (live.current) {
+				activeJob.current = id;
+				setError(e instanceof Error ? e.message : String(e));
+			}
+		} finally {
+			if (live.current) setStopping(false);
+		}
+	}
+
+	async function insert(message: ChatMessage) {
+		if (!message.sql || inserting) return;
+		if (context() !== message.context) {
+			setError("The connection or database changed. Generate a new draft for this database.");
+			return;
+		}
+		setInserting(true);
+		try {
+			const queryId = addQuery("AI query");
+			updateQuery(queryId, { query: message.sql });
+			await navigate({ to: "/runner/$queryId", params: { queryId } });
+			closeOverlay("chat.assistant");
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			if (live.current) setInserting(false);
+		}
+	}
+
+	return (
+		<SheetSidebar
+			title="AI Assistant"
+			cta={
+				db && (
+					<Button
+						type="button"
+						variant="outline"
+						size="lg"
+						disabled={isLoading}
+						onClick={() => {
+							setMessages([]);
+							setJob(null);
+							setText("");
+							setError("");
+						}}
+					>
+						<Plus className="size-4 mr-1" />
+						New Chat
+					</Button>
+				)
+			}
+			closeButton={false}
+			open={open}
+			size="max-w-2xl!"
+			contentClassName="p-0 flex flex-col h-[calc(100vh-4rem)] flex-1"
+			onOpenChange={(next) => {
+				if (!next) closeOverlay("chat.assistant");
+			}}
+		>
+			{db ? (
+				<div className="relative flex size-full flex-col divide-y overflow-hidden">
+					<Conversation>
+						<ConversationContent>
+							{messages.length === 0 ? (
+								<div className="flex items-center justify-center h-full text-muted-foreground">
+									<div className="text-center space-y-2">
+										<p className="text-lg font-medium">Start a new conversation</p>
+										<p className="text-sm">Ask me anything to get started</p>
+									</div>
+								</div>
+							) : (
+								messages.map((message) => (
+									<MessageBranch
+										defaultBranch={0}
+										key={message.id}
+									>
+										<MessageBranchContent>
+											<Message from={message.role}>
+												<div>
+													<MessageContent>
+														<MessageResponse>{messageText(message)}</MessageResponse>
+													</MessageContent>
+													{message.sql && (
+														<Button
+															type="button"
+															variant="outline"
+															size="sm"
+															className="mt-3"
+															disabled={inserting}
+															onClick={() => void insert(message)}
+														>
+															Insert into editor
+														</Button>
+													)}
+												</div>
+											</Message>
+										</MessageBranchContent>
+									</MessageBranch>
+								))
+							)}
+							{isLoading && (
+								<MessageBranch defaultBranch={0}>
+									<MessageBranchContent>
+										<Message from="assistant">
+											<MessageContent>
+												<LoadingText>Thinking...</LoadingText>
+											</MessageContent>
+										</Message>
+									</MessageBranchContent>
+								</MessageBranch>
+							)}
+						</ConversationContent>
+						<ConversationScrollButton />
+					</Conversation>
+					<div className="grid shrink-0 gap-4 pt-3">
+						{error && (
+							<div
+								role="alert"
+								className="mx-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+							>
+								{error}
+							</div>
+						)}
+						{job?.status === "cancelled" && (
+							<p
+								role="status"
+								className="mx-4 text-sm text-muted-foreground"
+							>
+								Generation stopped.
+							</p>
+						)}
+						{modelsError && (
+							<div
+								role="alert"
+								className="mx-4 text-sm text-destructive"
+							>
+								Could not load Paseo models.{" "}
+								<Button
+									type="button"
+									variant="link"
+									size="sm"
+									onClick={() => void loadModels()}
+								>
+									Retry models
+								</Button>
+							</div>
+						)}
+						{messages.length === 0 && (
+							<Suggestions className="px-4">
+								{CHAT_SUGGESTIONS.map((suggestion) => (
+									<Suggestion
+										key={suggestion}
+										suggestion={suggestion}
+										size="lg"
+										onClick={() => void sendMessage(suggestion)}
+									>
+										{suggestion}
+									</Suggestion>
+								))}
+							</Suggestions>
+						)}
+						<div className="w-full px-4 pb-4">
+							<PromptInput onSubmit={(message) => void sendMessage(message.text)}>
+								<PromptInputBody>
+									<PromptInputTextarea
+										aria-label="Message"
+										value={text}
+										onChange={(event) => setText(event.target.value)}
+										placeholder="Type a message..."
+										maxLength={20000}
+									/>
+								</PromptInputBody>
+								<PromptInputFooter className="justify-between">
+									<Select
+										value={model}
+										onValueChange={setModel}
+										disabled={isLoading || modelsLoading}
+									>
+										<SelectTrigger
+											aria-label="Paseo model"
+											className="max-w-[80%] min-w-0 border-0 bg-transparent text-xs shadow-none"
+										>
+											<SelectValue
+												placeholder={modelsLoading ? "Loading models..." : "Workspace default"}
+											/>
+										</SelectTrigger>
+										<SelectContent position="popper">
+											<SelectItem value="default">Workspace default</SelectItem>
+											{models.map((entry) => (
+												<SelectItem
+													key={entry.id}
+													value={entry.id}
+												>
+													{entry.provider + " · " + entry.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<PromptInputSubmit
+										className="h-8!"
+										type={isLoading ? "button" : "submit"}
+										aria-label={isLoading ? "Stop generating" : "Send message"}
+										status={starting ? "submitted" : isLoading ? "streaming" : "ready"}
+										onClick={isLoading ? () => void stop() : undefined}
+										disabled={starting || stopping || (!isLoading && !text.trim())}
+									/>
+								</PromptInputFooter>
+							</PromptInput>
+						</div>
+					</div>
+				</div>
+			) : (
+				<div className="flex items-center justify-center h-full text-muted-foreground p-8">
+					<div className="text-center space-y-2">
+						<p className="text-lg font-medium">No database selected</p>
+						<p className="text-sm">Select a database from the sidebar to start chatting.</p>
+					</div>
+				</div>
+			)}
+		</SheetSidebar>
+	);
+};
+
+export const ChatSidebar = () => {
+	const { selectedDatabase } = useDatabaseStore();
+	return (
+		<ChatSidebarContent
+			key={selectedDatabase ?? ""}
+			db={selectedDatabase}
+		/>
+	);
+};

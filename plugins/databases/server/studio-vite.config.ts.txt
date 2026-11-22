@@ -1,0 +1,15 @@
+import { defineConfig, mergeConfig } from "vite";
+import upstream from "./vite.config.ts";
+
+export default defineConfig(async (environment) =>
+	mergeConfig(await upstream(environment), {
+		build: {
+			license: { fileName: "third-party-licenses.json" },
+			rolldownOptions: {
+				output: {
+					postBanner: "/*! Third-party licenses: /third-party-licenses.json */",
+				},
+			},
+		},
+	}),
+);

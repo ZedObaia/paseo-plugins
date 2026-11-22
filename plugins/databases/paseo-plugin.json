@@ -1,0 +1,10 @@
+{
+  "id": "databases",
+  "name": "Databases",
+  "description": "Explore workspace PostgreSQL databases and SQLite files with db-studio and Paseo agents.",
+  "requirements": { "paseo": ">=0.12.0" },
+  "build": [
+    ["npm", "ci", "--omit=dev", "--ignore-scripts"],
+    ["node", "server/prepare-studio.mjs"]
+  ]
+}
