@@ -1,0 +1,8 @@
+{
+  "id": "quick-commands",
+  "name": "Quick commands",
+  "description": "Your own commands, for every project or one, run in a workspace's terminal with its branch, paths, ports and .env.",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  }
+}
