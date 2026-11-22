@@ -10,6 +10,8 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
 - A **bell** with a count of what needs you. Pressing it lists only those chats and workspaces, most
   urgent first; pressing it again brings everything back.
 - Beside the bell, a button that flips the workspaces between project and status grouping.
+- A phone on a workspace's row while it has a running simulator or emulator, when the Devices
+  plugin is installed.
 - A running chat or workspace shows a spinner and its current step with a progress bar ("2 of 4 ·
   Running the test suite"). Every agent the host opens, on any provider, is told to keep its task
   list current (Claude's tasks, Codex's plan, other agents' todos) or call the `report_progress`

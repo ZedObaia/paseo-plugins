@@ -20,6 +20,7 @@ import type { PluginWorkspaceSnapshot } from "@getpaseo/plugin";
 import { preferences } from "../shared/preferences";
 import { AttentionList, Bell, useAttention } from "./attention";
 import { BotsSection, NewBotButton, useBots } from "./bots";
+import { useRunningDevices } from "./devices";
 import { closeHoverCard } from "./hover-card";
 import {
   Menu,
@@ -189,6 +190,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   );
   const filterEmpty = projects.length > 0 && shown.length === 0;
   const status = prefs.grouping === "status";
+  const devices = useRunningDevices();
   const sidebar: Sidebar = {
     view,
     prefs,
@@ -197,6 +199,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
     projectOf,
     visible,
     hostBadges,
+    devices,
     toggleCollapsed: (key) =>
       update((current) => ({ ...current, collapsed: toggle(current.collapsed, key) })),
   };

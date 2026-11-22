@@ -1,6 +1,7 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
+import { registerBridge } from "./client/bridge";
 import { isOn, useDevices } from "./client/data";
 import { headerButtons } from "./client/header";
 import { devicePanel } from "./client/location";
@@ -51,5 +52,10 @@ export default function contribute(client: PluginClientContext) {
   });
   client.addScreen({ id: "devices", title: "Devices", Component: DevicesScreen });
   client.addSidebarHeaderItem({ id: "devices", title: "Devices", Component: DevicesItem });
-  return headerButtons(client);
+  const stopButtons = headerButtons(client);
+  const removeBridge = registerBridge(client);
+  return () => {
+    stopButtons();
+    removeBridge();
+  };
 }

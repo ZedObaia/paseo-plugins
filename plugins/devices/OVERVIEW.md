@@ -9,6 +9,9 @@ narrow window it opens as a workspace tab, and on a phone the header button is t
 workspace's own + menu opens it as a tab anywhere. In Paseo's phone app a one-finger swipe sideways
 moves Paseo's own panels, so swipe sideways on the device with two fingers.
 
+Other plugins in the app can see which workspaces have a running device; the status sidebar shows
+a phone on them.
+
 To test on several platforms or screen sizes, add more devices from the panel's **Add device**; they
 all run at once and the panel switches between them, one live view at a time. A device stays with
 its workspace: another workspace sees it as in use and has to take it over explicitly, or press

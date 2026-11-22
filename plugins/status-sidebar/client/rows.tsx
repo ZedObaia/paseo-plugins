@@ -54,6 +54,8 @@ export interface Sidebar {
   visible(workspace: PluginWorkspaceSnapshot): boolean;
   /** Host labels by host id; empty while the sidebar spans one host. */
   hostBadges: ReadonlyMap<string, string>;
+  /** Running devices' names by workspace id, from the Devices plugin. */
+  devices: ReadonlyMap<string, readonly string[]>;
   toggleCollapsed(key: string): void;
 }
 
@@ -482,7 +484,7 @@ function WorkspaceRow({
   indented?: boolean;
 }) {
   const { s, c, p, touch, iconSm } = useUi();
-  const { view, prefs, projectOf, hostBadges } = useSidebar();
+  const { view, prefs, projectOf, hostBadges, devices } = useSidebar();
   const paseo = usePaseo();
   const toast = useToast();
   const workspace = useWorkspace(reference);
@@ -509,6 +511,7 @@ function WorkspaceRow({
   const selected = view.active.workspace?.key === reference.key;
   const busy = archiving || workspace.archivingAt !== null;
   const pinned = workspace.pinnedAt !== null;
+  const device = devices.get(reference.id);
   const editing = renaming && !touch;
   const rowHovered = hovered && !editing;
   const project = withProject ? workspace.projectDisplayName : null;
@@ -628,6 +631,11 @@ function WorkspaceRow({
                     </Text>
                   )}
                   <View style={s.rowRight}>
+                    {device ? (
+                      <View style={s.pinMark} accessibilityLabel={`Running ${device.join(", ")}`}>
+                        <Icon name="Smartphone" size={12} color={c.foregroundMuted} />
+                      </View>
+                    ) : null}
                     {/* Pinned rows sit with the projects, under no "Pinned" heading, so they carry the mark. */}
                     {pinned ? (
                       <View style={s.pinMark} accessibilityLabel="Pinned">

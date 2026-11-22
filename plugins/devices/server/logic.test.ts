@@ -5,6 +5,7 @@ import path from "node:path";
 import { before, test } from "node:test";
 import type { Device } from "../shared/contracts";
 import { splitDevices } from "../shared/select";
+import { runningByWorkspace } from "../client/bridge";
 
 // state.ts picks its file from PASEO_HOME at import time: point it at a throwaway folder first
 let state: typeof import("./state");
@@ -190,4 +191,33 @@ test("the picker answers an agent's MCP messages over stdio, in its own workspac
     [true, "In use by Checkout"],
   );
   assert.deepEqual(used, ["b:ios:1"]);
+});
+
+test("the sidebar's running devices: booted ones, by workspace", () => {
+  const device = (id: string, name: string, state: Device["state"]): Device => ({
+    id,
+    platform: "ios",
+    name,
+    detail: "",
+    state,
+    kind: "simulator",
+    owned: false,
+    agentTools: false,
+    error: null,
+  });
+  const at = (workspaceId: string, deviceId: string) => ({
+    workspaceId,
+    workspaceName: "",
+    directory: "/w",
+    deviceId,
+  });
+  const running = runningByWorkspace({
+    devices: [
+      device("ios:A", "iPhone 17", "booted"),
+      device("ios:B", "iPad", "shutdown"),
+      device("ios:C", "iPhone Air", "booted"),
+    ],
+    assignments: [at("w1", "ios:A"), at("w1", "ios:C"), at("w2", "ios:B"), at("w3", "ios:gone")],
+  });
+  assert.deepEqual([...running], [["w1", ["iPhone 17", "iPhone Air"]]]);
 });
