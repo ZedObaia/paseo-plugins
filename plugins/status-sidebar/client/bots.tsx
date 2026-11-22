@@ -113,7 +113,6 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
   const name = bot.name ?? home?.name ?? "Bot";
   const collapsed = prefs.collapsed.includes(`bot:${bot.id}`);
   const toggle = () => toggleCollapsed(`bot:${bot.id}`);
-  const toggleLabel = collapsed ? `Show ${name}'s chats` : `Hide ${name}'s chats`;
   // The bot's own line: its busiest chat's progress.
   const busy = useAgents({
     where: (agent) => agent.labels[BOT_LABEL] === bot.id && agent.status === "running",
@@ -134,24 +133,19 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
   return (
     <View style={s.blockExpanded}>
       <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
-        {/* The row opens the bot's home; its avatar turns into the collapse chevron on hover, like a project's icon. */}
+        {/* Like a project row: it folds the bot's chats, and its avatar turns into the chevron on hover. */}
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ expanded: !collapsed }}
           accessibilityLabel={`${name}, ${refs.length} ${refs.length === 1 ? "chat" : "chats"}`}
-          onPress={bot.bridge ? openBot : toggle}
+          onPress={toggle}
           style={({ pressed }) => [s.botRow, hovered && s.hover, pressed && s.pressed]}
         >
           <View style={s.botLeading}>
             {hovered && !touch ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: !collapsed }}
-                accessibilityLabel={toggleLabel}
-                onPress={toggle}
-                style={s.botChevron}
-              >
+              <View style={s.botChevron}>
                 <Icon name={collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
-              </Pressable>
+              </View>
             ) : (
               <>
                 <BotAvatar bot={bot} size={20} fallbackName={name} />
@@ -168,18 +162,10 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
               <Text numberOfLines={1} style={[s.botName, hovered && s.titleHovered]}>
                 {name}
               </Text>
-              {actions ? (
+              {actions && bot.bridge ? (
                 <View style={s.projectActions}>
-                  {touch ? (
-                    <IconButton
-                      icon={collapsed ? "ChevronRight" : "ChevronDown"}
-                      label={toggleLabel}
-                      onPress={toggle}
-                    />
-                  ) : null}
-                  {bot.bridge ? (
-                    <IconButton icon="Plus" label={`New chat with ${name}`} onPress={newChat} />
-                  ) : null}
+                  <IconButton icon="House" label={`Open ${name}'s home`} onPress={openBot} />
+                  <IconButton icon="Plus" label={`New chat with ${name}`} onPress={newChat} />
                 </View>
               ) : latest ? (
                 <Text style={s.timestamp}>{compactTimeAgo(latest.lastActivityAt, Date.now())}</Text>
