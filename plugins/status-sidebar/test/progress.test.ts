@@ -17,7 +17,7 @@ test("every interactive agent gets report_progress, the instruction and Claude's
   assert.deepEqual(next.appendSystemPrompt, ["Project rules.", INSTRUCTIONS]);
   // The agent's own setting wins.
   assert.equal(next.env.CLAUDE_CODE_ENABLE_TODO_TOOLS, "0");
-  assert.equal(withProgress({ ...request, env: {} })?.env.CLAUDE_CODE_ENABLE_TODO_TOOLS, "1");
+  assert.equal(withProgress({ ...request, env: {} as Record<string, string> })?.env.CLAUDE_CODE_ENABLE_TODO_TOOLS, "1");
   assert.equal(withProgress({ ...request, purpose: "history" }), undefined);
   assert.equal(withProgress({ ...request, background: true }), undefined);
 });
