@@ -16,13 +16,14 @@ import { errorText, nativeTokens, useHover } from "../native";
 import { AppsPicker } from "../panel/AppsPicker";
 import { Button, CardNote } from "../panel/controls";
 import { LibraryPicker } from "../panel/LibraryPicker";
-import { chatScreen, libraryScreen } from "../screen-navigation";
+import { chatScreen } from "../screen-navigation";
 import { ui, useTypeScale } from "../typography";
 import { MenuProvider } from "../ui/Menu";
 import { useTooltipTheme } from "../ui/Tooltip";
 import { useBotSettings } from "../useBotSettings";
 import { saveBot } from "./editor";
 import { BotInfo, HomeSections, ProgressBar } from "./HomeSections";
+import { botLibraryScreen } from "./LibraryPage";
 import { headerStatus } from "./model";
 
 type Colors = PluginTheme["colors"];
@@ -125,7 +126,7 @@ function HomeContent({ theme, layout, host, params, navigation, openScreen, open
   );
 
   return (
-    <LibraryNavigation.Provider value={(target = null) => openScreen(libraryScreen(target, target && "id" in target ? library.mcpServers.find((server) => server.id === target.id)?.name : undefined))}>
+    <LibraryNavigation.Provider value={(target = null) => openScreen(botLibraryScreen(target, library, bot))}>
       <View style={{ flex: 1, backgroundColor: colors.surface0 }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
         <ScrollView
           style={{ flex: 1 }}

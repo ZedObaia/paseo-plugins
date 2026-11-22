@@ -29,6 +29,8 @@ interface LibraryListProps {
   touch: boolean;
   /** Desktop: a "Back to bots" row heads the column, like settings' "Back to workspace". */
   onBack?(): void;
+  /** Where Back goes, when not the bot list. */
+  backLabel?: string;
   /** The home indicator on phones. */
   bottomInset: number;
 }
@@ -37,7 +39,7 @@ interface LibraryListProps {
  * The page's list column, in the settings sidebar's geometry (settings-screen.tsx):
  * a group per kind with its items and an add button.
  */
-export function LibraryList({ colors, library, query, onQuery, selected, onSelect, onAddSkill, onAddServer, touch, onBack, bottomInset }: LibraryListProps) {
+export function LibraryList({ colors, library, query, onQuery, selected, onSelect, onAddSkill, onAddServer, touch, onBack, backLabel = "Back to bots", bottomInset }: LibraryListProps) {
   const skills = library.skills
     .filter((skill) => matchesQuery(query, skill.id, skill.description, skill.source))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -56,7 +58,7 @@ export function LibraryList({ colors, library, query, onQuery, selected, onSelec
     <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 + bottomInset }}>
       {/* Paseo's sidebar header group: its rows over a full-width divider (left-sidebar.tsx sidebarHeaderGroup). */}
       <View style={{ paddingHorizontal: 8, paddingTop: 8, paddingBottom: 8, gap: 2, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        {onBack ? <NavRow colors={colors} icon="ArrowLeft" label="Back to bots" selected={false} touch={touch} onPress={onBack} /> : null}
+        {onBack ? <NavRow colors={colors} icon="ArrowLeft" label={backLabel} selected={false} touch={touch} onPress={onBack} /> : null}
         <SearchField colors={colors} value={query} onChangeText={onQuery} placeholder="Search skills and tools" />
       </View>
 

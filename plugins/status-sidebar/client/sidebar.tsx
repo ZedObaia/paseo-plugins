@@ -19,7 +19,7 @@ import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import type { PluginWorkspaceSnapshot } from "@getpaseo/plugin";
 import { preferences } from "../shared/preferences";
 import { AttentionList, Bell, useAttention } from "./attention";
-import { BotsSection, useBots } from "./bots";
+import { BotsSection, NewBotButton, useBots } from "./bots";
 import { closeHoverCard } from "./hover-card";
 import {
   Menu,
@@ -233,6 +233,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
                   collapsed={botsCollapsed}
                   onToggle={() => sidebar.toggleCollapsed("section:bots")}
                 >
+                  <NewBotButton bots={bots} />
                   {bell}
                 </SectionHeader>
                 {botsCollapsed ? null : <BotsSection bots={bots} chats={chats} />}

@@ -18,6 +18,8 @@ export interface FawzyBridge {
   openChat(botId: string, chatId: string): void;
   /** The bot's home, ready to type a new chat. */
   newChat(botId: string): void;
+  /** The New bot page. */
+  newBot(): void;
   /** Needs no Fawzy context, so it renders inside another plugin's tree. */
   Avatar: ComponentType<{ avatar: BotAvatar; size: number; dark?: boolean }>;
 }
@@ -44,6 +46,7 @@ export function registerBridge(client: Pick<PluginClientContext, "rpc" | "openSc
     openChat: (botId, chatId) => open(botId, (title) => chatScreen({ botId, chatId }, title)),
     // The bot's home with its message box focused; the chat opens in Paseo once you send.
     newChat: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title, compose: String(Date.now()) } })),
+    newBot: () => client.openScreen({ screenId: "bot-new" }),
     Avatar,
   };
   const registry = globalThis as Registry;

@@ -19,6 +19,8 @@ interface FawzyBridge {
   openBot(botId: string): void;
   openChat(botId: string, chatId: string): void;
   newChat(botId: string): void;
+  /** Newer Fawzy only. */
+  newBot?(): void;
   Avatar: ComponentType<{ avatar: unknown; size: number; dark?: boolean }>;
 }
 
@@ -194,6 +196,30 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
         </>
       )}
     </View>
+  );
+}
+
+/** Fawzy's New bot page, from the Bots header. */
+export function NewBotButton({ bots }: { bots: readonly Bot[] }) {
+  const { s, c } = useUi();
+  const { view } = useSidebar();
+  const bridge = bots.find((bot) => bot.bridge?.newBot)?.bridge;
+  if (!bridge?.newBot) return null;
+  const newBot = bridge.newBot;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="New bot"
+      onPress={() => {
+        newBot();
+        view.dismiss();
+      }}
+      style={(state: PressState) => [s.bell, state.hovered && s.hover]}
+    >
+      {(state: PressState) => (
+        <Icon name="Plus" size={14} color={state.hovered ? c.foreground : c.foregroundMuted} />
+      )}
+    </Pressable>
   );
 }
 

@@ -34,10 +34,12 @@ describe("bridge", () => {
     bridge.openBot("bot-a");
     bridge.openChat("bot-a", "chat-1");
     bridge.newChat("bot-a");
+    bridge.newBot();
     expect(openScreen.mock.calls.map(([input]) => input)).toMatchObject([
       { screenId: "bot-home", params: { botId: "bot-a", title: "Scout" } },
       { screenId: "bot-chat", params: { botId: "bot-a", chatId: "chat-1", title: "Scout" } },
       { screenId: "bot-home", params: { botId: "bot-a", title: "Scout", compose: expect.any(String) } },
+      { screenId: "bot-new" },
     ]);
 
     // An unknown bot is looked up before its screen opens.

@@ -12,12 +12,13 @@ import { InteractionRecovery } from "./client/chat/stream/InteractionRecovery";
 import { INTERACTION_CARD, InteractionIdSchema, InteractionSchema, interactionIdOf } from "./shared/interaction";
 import { HandoffCard } from "./client/chat/stream/HandoffCard";
 import { HANDOFF_CARD, HandoffCardSchema } from "./shared/handoff";
-import { requestIntent } from "./client/intent";
 import { RoutinesScreen } from "./client/RoutinesScreen";
 import { registerBridge } from "./client/bridge";
 import { BotHome } from "./client/home/BotHome";
 import { BotSettingsPage } from "./client/home/BotSettingsPage";
 import { BotTab } from "./client/home/BotTab";
+import { LibraryPage } from "./client/home/LibraryPage";
+import { NewBotPage } from "./client/home/NewBotPage";
 import { PaseoBotsSidebar } from "./client/PaseoSidebar";
 import { BackBar } from "./client/library/parts";
 import { useTypeScale } from "./client/typography";
@@ -53,9 +54,10 @@ export default function contribute(client: PluginClientContext) {
   // Hands the daemon side its Paseo API so bot routines can run.
   void client.rpc(helloRpc, {}).catch(() => {});
   const removeTooltips = installTooltips();
-  // A bot's settings are its own page now; the Bots screen keeps the rest.
+  // A bot's settings, Skills & Tools and New bot are pages of their own; the Bots screen keeps the rest.
+  const ownPages = new Set(["bot-settings", "bot-section", "bot-library", "bot-library-item"]);
   for (const screen of BOT_SCREENS) {
-    if (screen.id !== "bot-settings" && screen.id !== "bot-section") registerBotScreen(client, screen);
+    if (!ownPages.has(screen.id)) registerBotScreen(client, screen);
   }
   const openScreen = (input: PluginOpenScreenInput) => client.openScreen(input);
   const openPanel = (workspaceId: string) => {
@@ -76,6 +78,10 @@ export default function contribute(client: PluginClientContext) {
   for (const id of ["bot-settings", "bot-section"]) {
     client.addScreen({ id, title: (params) => params.title || "Bot settings", Component: (props) => <BotSettingsPage {...props} openScreen={openScreen} openPanel={openPanel} /> });
   }
+  for (const id of ["bot-library", "bot-library-item"]) {
+    client.addScreen({ id, title: (params) => params.title || "Skills & Tools", Component: (props) => <LibraryPage key={JSON.stringify(props.params)} {...props} openScreen={openScreen} /> });
+  }
+  client.addScreen({ id: "bot-new", title: "New bot", Component: (props) => <NewBotPage {...props} openScreen={openScreen} /> });
   client.addWorkspacePanel({ id: "bot", title: "Bot", icon: "Bot", locations: ["explorer"], Component: (props) => <BotTab {...props} openScreen={openScreen} /> });
   client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: PaseoBotsSidebar });
   const backToBots = () => client.openScreen({ screenId: BOTS_SCREEN });
@@ -110,8 +116,7 @@ export default function contribute(client: PluginClientContext) {
     keywords: ["bot", "create", "assistant"],
     context: "global",
     onSelect({ openScreen }) {
-      requestIntent({ kind: "new-bot" });
-      openScreen({ screenId: BOTS_SCREEN });
+      openScreen({ screenId: "bot-new" });
     },
   });
   // Bot chats opened in Paseo's own agent view get the same /learn and skill cards.

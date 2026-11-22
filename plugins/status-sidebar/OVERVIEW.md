@@ -6,7 +6,7 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
 - A **Bots** section when the Fawzy plugin is installed: each bot with its chats underneath, its
   progress and whether a chat needs you. A chat opens in Paseo like any other agent. Pressing a bot
   folds its chats, like a project; the house button opens its home and + opens the home ready to type
-  a new chat.
+  a new chat. The + on the Bots header opens Fawzy's New bot page.
 - A **bell** with a count of what needs you. Pressing it lists only those chats and workspaces, most
   urgent first; pressing it again brings everything back.
 - A running chat or workspace shows a spinner and its current step with a progress bar ("2 of 4 ·

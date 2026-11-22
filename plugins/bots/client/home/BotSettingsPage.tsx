@@ -11,12 +11,12 @@ import { LibraryNavigation } from "../navigation";
 import { errorText, nativeTokens } from "../native";
 import { BotPanel, botSectionTitle, type SectionId } from "../panel/BotPanel";
 import { CardNote } from "../panel/controls";
-import { libraryScreen } from "../screen-navigation";
 import { useTypeScale } from "../typography";
 import { MenuProvider } from "../ui/Menu";
 import { useTooltipTheme } from "../ui/Tooltip";
 import { chatOpener, type BotPageActions } from "./BotHome";
 import { useBotEditor } from "./editor";
+import { botLibraryScreen } from "./LibraryPage";
 
 /**
  * One bot's settings on their own page (screens "bot-settings" and "bot-section", param botId and
@@ -48,7 +48,7 @@ export function BotSettingsPage(props: PluginScreenProps & BotPageActions) {
   return (
     <MenuProvider colors={colors} compact={layout.compact}>
       <AvatarTheme dark={nativeTokens(colors).dark}>
-        <LibraryNavigation.Provider value={(target = null) => openScreen(libraryScreen(target, target && "id" in target ? library.mcpServers.find((server) => server.id === target.id)?.name : undefined))}>
+        <LibraryNavigation.Provider value={(target = null) => openScreen(botLibraryScreen(target, library, bot))}>
           <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
             <View style={{ flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" }}>
               <BotPanel

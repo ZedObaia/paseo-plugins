@@ -37,6 +37,8 @@ interface LibraryViewProps {
   onTarget(target: LibraryTarget | null): void;
   /** Back to the bot list. */
   onBack(): void;
+  /** Where Back goes, when not the bot list. */
+  backLabel?: string;
   /** The home indicator on phones, kept clear below lists and pages. */
   bottomInset: number;
   /** Paseo owns the title and Back navigation on mobile routes. */
@@ -50,7 +52,7 @@ interface LibraryViewProps {
  * back row and a 720-wide page on desktop; on compact the list is a screen
  * that pushes the page.
  */
-export function LibraryView({ colors, layout, values, commit, target, onTarget: setTarget, onBack, bottomInset, hostNavigation = false }: LibraryViewProps) {
+export function LibraryView({ colors, layout, values, commit, target, onTarget: setTarget, onBack, backLabel = "Back to bots", bottomInset, hostNavigation = false }: LibraryViewProps) {
   const compact = layout.compact;
   const toast = useToast();
   const menu = useMenu();
@@ -265,6 +267,7 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
       onAddServer={openServerMenu}
       touch={compact || layout.platform !== "web"}
       onBack={compact ? undefined : onBack}
+      backLabel={backLabel}
       bottomInset={bottomInset}
     />
   );
@@ -283,7 +286,7 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
         // Phones stack a page over the list, so a swipe or Back returns to it.
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: nativeTokens(colors).surfaceSidebar }}>
-            <BackBar colors={colors} title="Skills & Tools" backLabel="Back to bots" onBack={onBack} />
+            <BackBar colors={colors} title="Skills & Tools" backLabel={backLabel} onBack={onBack} />
             {list}
           </View>
           {shown ? (
