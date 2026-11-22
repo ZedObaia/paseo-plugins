@@ -95,9 +95,19 @@ export function BotAvatar({ bot, size, fallbackName }: { bot: Bot; size: number;
 
 function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
   const { s, p, touch } = useUi();
-  const { prefs, toggleCollapsed } = useSidebar();
+  const { view, prefs, toggleCollapsed } = useSidebar();
   const [hovered, setHovered] = useState(false);
   const [more, setMore] = useState(false);
+  // Fawzy opens its screens itself; close the phone's sidebar drawer as Paseo's own links do, or the
+  // screen opens behind it.
+  const openBot = () => {
+    bot.bridge?.openBot(bot.id);
+    view.dismiss();
+  };
+  const newChat = () => {
+    bot.bridge?.newChat(bot.id);
+    view.dismiss();
+  };
   const latest = useAgent(refs[0] ?? "");
   const home = useWorkspace(latest?.workspace ?? "");
   const name = bot.name ?? home?.name ?? "Bot";
@@ -144,16 +154,8 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
               </Text>
               {actions && bot.bridge ? (
                 <View style={s.projectActions}>
-                  <IconButton
-                    icon="House"
-                    label={`Open ${name}`}
-                    onPress={() => bot.bridge?.openBot(bot.id)}
-                  />
-                  <IconButton
-                    icon="Plus"
-                    label={`New chat with ${name}`}
-                    onPress={() => bot.bridge?.newChat(bot.id)}
-                  />
+                  <IconButton icon="House" label={`Open ${name}`} onPress={openBot} />
+                  <IconButton icon="Plus" label={`New chat with ${name}`} onPress={newChat} />
                 </View>
               ) : latest ? (
                 <Text style={s.timestamp}>{compactTimeAgo(latest.lastActivityAt, Date.now())}</Text>
@@ -177,7 +179,7 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
             />
           ) : null}
           {!refs.length && bot.bridge ? (
-            <PlainRow icon="Plus" label="New chat" indented onPress={() => bot.bridge?.newChat(bot.id)} />
+            <PlainRow icon="Plus" label="New chat" indented onPress={newChat} />
           ) : null}
         </>
       )}
