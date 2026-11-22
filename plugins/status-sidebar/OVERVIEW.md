@@ -8,9 +8,11 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
   opens the bot's page and + starts a new chat in Fawzy.
 - A **bell** with a count of what needs you. Pressing it lists only those chats and workspaces, most
   urgent first; pressing it again brings everything back.
-- A running chat or workspace shows a spinner and, when the agent keeps a task list, the current
-  step with a progress bar ("2 of 4 · Replying on GitHub"). A bot can write its own line with
-  Fawzy's `set_status` tool.
+- A running chat or workspace shows a spinner and its current step with a progress bar ("2 of 4 ·
+  Running the test suite"). Every agent the host opens, on any provider, is told to keep its task
+  list current (Claude's tasks, Codex's plan, other agents' todos) or call the `report_progress`
+  tool this plugin gives it; Claude Code's task tools are switched on for it. A line an agent leaves
+  behind clears when its turn ends. Fawzy's bots can also use `set_status`.
 - Bots and Workspaces fold away from their headers.
 - One **Workspaces** section: pinned workspaces first, marked with a pin, then the projects. Its
   sliders menu has grouping by project or status, sort, title source, the row items it can show
