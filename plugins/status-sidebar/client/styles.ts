@@ -144,7 +144,17 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     },
     titleHovered: { opacity: 1 },
     titleWithPill: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
-    titleShrink: { flex: 0, flexShrink: 1 },
+    // The title as wide as its text, so the pill sits right after it (s.title's `flex: 1` has a zero
+    // basis on the web, and overriding `flex` alone collapsed it to nothing).
+    titleInline: {
+      color: c.foreground,
+      fontSize: 14,
+      fontWeight: "400",
+      lineHeight: 20,
+      opacity: 0.76,
+      flexShrink: 1,
+      minWidth: 0,
+    },
     mainPill: {
       height: 16,
       paddingHorizontal: 5,

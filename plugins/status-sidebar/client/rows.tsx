@@ -635,7 +635,7 @@ function WorkspaceRow({
                     <View style={s.titleWithPill}>
                       <Text
                         numberOfLines={1}
-                        style={[s.title, main && s.titleShrink, rowHovered && s.titleHovered]}
+                        style={[main ? s.titleInline : s.title, rowHovered && s.titleHovered]}
                       >
                         {title}
                       </Text>
