@@ -1,0 +1,1884 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toolbox · design</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Paseo's default dark theme, taken from the app bundle. */
+      :root {
+        --page: #0d0f0e;
+        --s0: #181b1a;
+        --s1: #1e2120;
+        --s2: #272a29;
+        --s3: #434645;
+        --side: #141716;
+        --fg: #f4f5f4;
+        --mut: #a1a5a4;
+        --xmut: #717574;
+        --bd: #252b2a;
+        --bda: #2f3534;
+        --acc: #20744a;
+        --accb: #7ccba0;
+        --warn: #d4a44a;
+        --bad: #e07070;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--fg);
+        font:
+          14px/1.45 Inter,
+          -apple-system,
+          system-ui,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+      }
+      input {
+        font: inherit;
+        color: inherit;
+      }
+      svg.i {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+
+      /* Page */
+      .page {
+        max-width: 1360px;
+        margin: 0 auto;
+        padding: 72px 40px 120px;
+      }
+      .intro {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 40px;
+        margin-bottom: 56px;
+      }
+      .intro h1 {
+        font-size: 44px;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        margin: 0 0 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .intro h1 .logo {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(145deg, #2a8a5a, #175c3a);
+        box-shadow: 0 10px 30px rgba(32, 116, 74, 0.35);
+      }
+      .intro h1 .logo svg {
+        width: 28px;
+        height: 28px;
+        stroke: #fff;
+      }
+      .intro p {
+        margin: 0;
+        color: var(--mut);
+        font-size: 17px;
+        max-width: 640px;
+      }
+      .intro .tag {
+        color: var(--xmut);
+        font-size: 13px;
+        text-align: right;
+        white-space: nowrap;
+      }
+      .frame-title {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin: 72px 0 18px;
+      }
+      .frame-title .n {
+        color: var(--accb);
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .frame-title h2 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .frame-title p {
+        margin: 0;
+        color: var(--mut);
+        font-size: 14px;
+      }
+
+      /* App window */
+      .window {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid #2a2f2e;
+        background: var(--s0);
+        box-shadow:
+          0 30px 80px rgba(0, 0, 0, 0.55),
+          0 0 0 1px rgba(255, 255, 255, 0.02);
+        display: grid;
+        grid-template-columns: 236px 1fr;
+        height: 820px;
+      }
+      .sidebar {
+        background: var(--side);
+        border-right: 1px solid var(--bd);
+        padding: 14px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .lights {
+        display: flex;
+        gap: 8px;
+        padding: 4px 8px 22px;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: block;
+      }
+      .srow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        color: var(--fg);
+        font-size: 14px;
+      }
+      .srow svg {
+        color: var(--mut);
+      }
+      .srow.active {
+        background: var(--s2);
+      }
+      .srow .dot {
+        margin-left: auto;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--warn);
+      }
+      .sgroup {
+        color: var(--xmut);
+        font-size: 13px;
+        padding: 18px 10px 6px;
+      }
+      .ws {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        color: var(--mut);
+      }
+      .ws.active {
+        background: var(--s2);
+        color: var(--fg);
+      }
+      .ws b {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--xmut);
+        display: block;
+        flex: none;
+      }
+      .ws.active b {
+        background: var(--accb);
+      }
+      .ws.idle b {
+        background: transparent;
+        border: 1.5px solid var(--xmut);
+        width: 8px;
+        height: 8px;
+      }
+
+      .main {
+        display: grid;
+        grid-template-rows: 52px minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+      }
+      .mhead {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--bd);
+      }
+      .mhead .t {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .mhead .br {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--mut);
+        font-size: 14px;
+      }
+      .mhead .r {
+        margin-left: auto;
+        display: flex;
+        gap: 16px;
+        color: var(--mut);
+        align-items: center;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 430px;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      /* Chat */
+      .chat {
+        display: flex;
+        flex-direction: column;
+        padding: 22px 26px 18px;
+        min-width: 0;
+        border-right: 1px solid var(--bd);
+      }
+      .msgs {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: hidden;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 78%;
+        background: var(--s2);
+        border-radius: 16px;
+        padding: 11px 15px;
+        font-size: 14.5px;
+      }
+      .tool {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--mut);
+        font-size: 13.5px;
+      }
+      .tool .k {
+        color: var(--fg);
+      }
+      .tool.fail {
+        color: var(--bad);
+      }
+      .say {
+        font-size: 14.5px;
+        line-height: 1.6;
+        color: #e6e8e7;
+      }
+      .composer {
+        border: 1px solid var(--bda);
+        border-radius: 16px;
+        padding: 12px 12px 10px 16px;
+        background: var(--s1);
+        position: relative;
+      }
+      .composer .ph {
+        color: var(--xmut);
+        font-size: 14.5px;
+        padding: 2px 0 12px;
+      }
+      .composer .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .composer .send {
+        margin-left: auto;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--acc);
+        display: grid;
+        place-items: center;
+      }
+      .composer .send svg {
+        stroke: #fff;
+      }
+      .pillbtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 11px;
+        border-radius: 14px;
+        border: 1px solid var(--bda);
+        background: var(--s2);
+        font-size: 13px;
+        color: var(--mut);
+      }
+      .pillbtn.warn {
+        color: var(--warn);
+        border-color: rgba(212, 164, 74, 0.35);
+        background: rgba(212, 164, 74, 0.08);
+      }
+
+      /* Right panel */
+      .rpanel {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--s0);
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--bd);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 11px;
+        border-radius: 8px;
+        color: var(--mut);
+        font-size: 14px;
+      }
+      .tab.on {
+        background: var(--s2);
+        color: var(--fg);
+      }
+      .tab.plus {
+        padding: 6px 8px;
+      }
+
+      /* Toolbox panel (shared by the desktop panel and the phone) */
+      .tb {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1;
+      }
+      .tb-scroll {
+        flex: 1;
+        overflow: auto;
+        padding: 14px 16px 120px;
+        scrollbar-width: none;
+      }
+      .tb-scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        font-size: 13px;
+        color: var(--mut);
+        margin-bottom: 12px;
+        align-items: center;
+      }
+      .summary .w {
+        color: var(--warn);
+      }
+      .summary .b {
+        color: var(--bad);
+      }
+      .summary .sep {
+        color: var(--s3);
+      }
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 11px;
+        border: 1px solid var(--bda);
+        border-radius: 9px;
+        background: var(--s1);
+        color: var(--xmut);
+        font-size: 13.5px;
+      }
+      .search input {
+        background: none;
+        border: 0;
+        outline: 0;
+        flex: 1;
+        min-width: 0;
+      }
+      .search input::placeholder {
+        color: var(--xmut);
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        margin: 10px 0 6px;
+        padding: 3px;
+        background: var(--s1);
+        border: 1px solid var(--bd);
+        border-radius: 10px;
+      }
+      .seg button {
+        flex: 1;
+        height: 28px;
+        border-radius: 7px;
+        color: var(--mut);
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .seg button.on {
+        background: var(--s2);
+        color: var(--fg);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+      }
+      .seg button span {
+        color: var(--xmut);
+        font-weight: 400;
+        margin-left: 3px;
+      }
+      .sec {
+        margin-top: 18px;
+      }
+      .sec-h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--mut);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 0 2px 6px;
+      }
+      .sec-h .add {
+        margin-left: auto;
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: 500;
+        color: var(--accb);
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .list {
+        border: 1px solid var(--bd);
+        border-radius: 12px;
+        background: var(--s1);
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 12px;
+        border-top: 1px solid var(--bd);
+        transition:
+          background 0.15s,
+          opacity 0.2s;
+      }
+      .row:first-child {
+        border-top: 0;
+      }
+      .row:hover {
+        background: #222625;
+      }
+      .row.off .tile,
+      .row.off .nm {
+        opacity: 0.5;
+      }
+      .tile {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 14px;
+        color: #fff;
+        flex: none;
+      }
+      .tile.neutral {
+        background: var(--s2);
+        color: var(--mut);
+        border: 1px solid var(--bda);
+      }
+      .tile.neutral svg {
+        width: 15px;
+        height: 15px;
+      }
+      .rt {
+        flex: 1;
+        min-width: 0;
+      }
+      .nm {
+        font-weight: 500;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+      }
+      .mt {
+        color: var(--mut);
+        font-size: 12.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mt.w {
+        color: var(--warn);
+      }
+      .mt.b {
+        color: var(--bad);
+      }
+      .badge {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--mut);
+        border: 1px solid var(--bda);
+        border-radius: 6px;
+        padding: 0 6px;
+        line-height: 18px;
+      }
+      .btn-s {
+        height: 28px;
+        padding: 0 11px;
+        border-radius: 8px;
+        border: 1px solid var(--bda);
+        background: var(--s2);
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .btn-s.warn {
+        color: #f0c46b;
+        border-color: rgba(212, 164, 74, 0.4);
+        background: rgba(212, 164, 74, 0.1);
+      }
+      .btn-s.ghost {
+        background: none;
+        border-color: transparent;
+        color: var(--mut);
+      }
+      .sw {
+        width: 34px;
+        height: 20px;
+        border-radius: 10px;
+        background: var(--s3);
+        position: relative;
+        flex: none;
+        transition: background 0.18s;
+      }
+      .sw::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #d9dcdb;
+        transition:
+          transform 0.18s,
+          background 0.18s;
+      }
+      .sw.on {
+        background: var(--acc);
+      }
+      .sw.on::after {
+        transform: translateX(14px);
+        background: #fff;
+      }
+      .row.changed .sw {
+        box-shadow:
+          0 0 0 2px var(--page),
+          0 0 0 3.5px rgba(124, 203, 160, 0.55);
+      }
+      .scope {
+        margin: 18px 4px 0;
+        color: var(--xmut);
+        font-size: 12.5px;
+        line-height: 1.5;
+        display: flex;
+        gap: 8px;
+      }
+      .scope a {
+        color: var(--accb);
+        text-decoration: none;
+      }
+
+      .pending {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        border-radius: 14px;
+        background: #232827;
+        border: 1px solid #36403d;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        padding: 12px 12px 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transform: translateY(16px);
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          transform 0.22s ease,
+          opacity 0.22s ease;
+      }
+      .pending.show {
+        transform: none;
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .pending .pt {
+        flex: 1;
+        min-width: 0;
+      }
+      .pending .pt b {
+        font-weight: 600;
+        font-size: 14px;
+        display: block;
+      }
+      .pending .pt span {
+        color: var(--mut);
+        font-size: 12.5px;
+      }
+      .btn-p {
+        height: 32px;
+        padding: 0 14px;
+        border-radius: 9px;
+        background: var(--acc);
+        color: #fff;
+        font-weight: 600;
+        font-size: 13.5px;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .pending.done {
+        border-color: rgba(124, 203, 160, 0.35);
+      }
+      .pending.done .pt b {
+        color: var(--accb);
+      }
+
+      /* Toolbox screen */
+      .screen {
+        display: grid;
+        grid-template-columns: 1fr 372px;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .scr-l {
+        padding: 26px 28px;
+        overflow: hidden;
+        min-width: 0;
+      }
+      .scr-h {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .scr-h h3 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .scr-h p {
+        margin: 3px 0 0;
+        color: var(--mut);
+        font-size: 13.5px;
+      }
+      .scr-h .btn-p {
+        margin-left: auto;
+      }
+      .tools-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .tools-row .search {
+        flex: 1;
+      }
+      .tools-row .seg {
+        margin: 0;
+        flex: none;
+      }
+      .tools-row .seg button {
+        padding: 0 12px;
+        flex: none;
+      }
+      .need {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(212, 164, 74, 0.35);
+        background: rgba(212, 164, 74, 0.08);
+        color: #f0c46b;
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .trow {
+        display: grid;
+        grid-template-columns: 30px 1fr auto 34px;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 14px;
+        border-top: 1px solid var(--bd);
+      }
+      .trow:first-child {
+        border-top: 0;
+      }
+      .trow.sel {
+        background: #232827;
+        box-shadow: inset 2px 0 0 var(--accb);
+      }
+      .apps {
+        display: flex;
+        gap: 5px;
+      }
+      .app {
+        font-size: 11.5px;
+        font-weight: 500;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: var(--s2);
+        color: var(--fg);
+        border: 1px solid var(--bda);
+      }
+      .app i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        display: block;
+      }
+      .app.missing {
+        background: none;
+        color: var(--xmut);
+        border-style: dashed;
+      }
+      .detail {
+        border-left: 1px solid var(--bd);
+        background: var(--s1);
+        padding: 24px 22px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .d-head {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+      }
+      .d-head .tile {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        font-size: 20px;
+      }
+      .d-head h4 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .d-head p {
+        margin: 1px 0 0;
+        color: var(--mut);
+        font-size: 13px;
+      }
+      .d-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13.5px;
+      }
+      .d-status i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accb);
+        box-shadow: 0 0 0 3px rgba(124, 203, 160, 0.15);
+      }
+      .d-status .r {
+        margin-left: auto;
+        display: flex;
+        gap: 6px;
+      }
+      .d-sec h5 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--mut);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .d-list {
+        border: 1px solid var(--bd);
+        border-radius: 11px;
+        overflow: hidden;
+        background: var(--s0);
+      }
+      .d-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-top: 1px solid var(--bd);
+        font-size: 13.5px;
+      }
+      .d-row:first-child {
+        border-top: 0;
+      }
+      .d-row .x {
+        color: var(--mut);
+        font-size: 12.5px;
+      }
+      .d-row .end {
+        margin-left: auto;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .chip {
+        font:
+          12px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #cfd3d2;
+        background: var(--s0);
+        border: 1px solid var(--bd);
+        border-radius: 6px;
+        padding: 6px 8px;
+      }
+      .chip.more {
+        font-family: inherit;
+        color: var(--accb);
+        border-color: transparent;
+        background: none;
+      }
+      .d-foot {
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+      }
+      .d-foot .del {
+        margin-left: auto;
+        color: var(--bad);
+      }
+
+      /* Pair of frames */
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 420px;
+        gap: 28px;
+        align-items: start;
+      }
+      .card-frame {
+        border-radius: 14px;
+        border: 1px solid #2a2f2e;
+        background: var(--s0);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+      }
+      .chatonly {
+        padding: 26px 28px 20px;
+        height: 860px;
+        display: flex;
+        flex-direction: column;
+      }
+      .signin {
+        border: 1px solid var(--bda);
+        background: var(--s1);
+        border-radius: 14px;
+        padding: 14px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        max-width: 520px;
+      }
+      .signin .tile {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+      }
+      .signin b {
+        display: block;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .signin span {
+        color: var(--mut);
+        font-size: 13px;
+      }
+      .signin .btn-p {
+        margin-left: auto;
+      }
+      .popover {
+        position: absolute;
+        left: 8px;
+        bottom: 54px;
+        width: 340px;
+        border-radius: 14px;
+        background: #222625;
+        border: 1px solid #36403d;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+        padding: 6px;
+      }
+      .pop-row {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 9px 10px;
+        border-radius: 9px;
+        font-size: 13.5px;
+      }
+      .pop-row .tile {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        font-size: 12px;
+      }
+      .pop-row .x {
+        color: var(--mut);
+        font-size: 12.5px;
+      }
+      .pop-row .end {
+        margin-left: auto;
+      }
+      .pop-sep {
+        height: 1px;
+        background: var(--bd);
+        margin: 4px 6px;
+      }
+      .pop-link {
+        color: var(--mut);
+      }
+
+      /* Phone */
+      .phone {
+        width: 420px;
+        height: 860px;
+        border-radius: 62px;
+        background: #050606;
+        padding: 14px;
+        box-shadow:
+          0 0 0 1.5px #2b2f2e,
+          0 40px 90px rgba(0, 0, 0, 0.6);
+      }
+      .phone-in {
+        width: 100%;
+        height: 100%;
+        border-radius: 50px;
+        overflow: hidden;
+        background: var(--s0);
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .status {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 34px 0;
+        font-weight: 600;
+        font-size: 15px;
+        flex: none;
+      }
+      .island {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120px;
+        height: 34px;
+        border-radius: 20px;
+        background: #000;
+      }
+      .ph-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 8px 18px 12px;
+        border-bottom: 1px solid var(--bd);
+        flex: none;
+      }
+      .ph-head .t b {
+        display: block;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .ph-head .t span {
+        color: var(--mut);
+        font-size: 12.5px;
+      }
+      .ph-head .r {
+        margin-left: auto;
+        display: flex;
+        gap: 16px;
+        color: var(--mut);
+      }
+      .ph-pick {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--bd);
+        font-weight: 500;
+        flex: none;
+      }
+      .ph-pick .r {
+        margin-left: auto;
+        color: var(--mut);
+      }
+      .phone .tb-scroll {
+        padding: 14px 14px 120px;
+      }
+      .phone .home {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 130px;
+        height: 5px;
+        border-radius: 3px;
+        background: #e9eceb;
+        opacity: 0.85;
+        z-index: 3;
+      }
+      .phone .pending {
+        bottom: 26px;
+      }
+
+      /* Built on */
+      .built {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: 28px;
+        align-items: start;
+      }
+      .box {
+        border: 1px solid var(--bd);
+        border-radius: 14px;
+        background: var(--s1);
+        overflow: hidden;
+      }
+      .box h3 {
+        margin: 0;
+        padding: 16px 18px;
+        font-size: 15px;
+        font-weight: 600;
+        border-bottom: 1px solid var(--bd);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+      }
+      td {
+        padding: 11px 18px;
+        border-top: 1px solid var(--bd);
+        vertical-align: top;
+      }
+      tr:first-child td {
+        border-top: 0;
+      }
+      td:first-child {
+        color: var(--fg);
+        width: 38%;
+      }
+      td:last-child {
+        color: var(--mut);
+      }
+      code {
+        font:
+          12.5px ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #cfe9da;
+        background: rgba(32, 116, 74, 0.14);
+        border-radius: 5px;
+        padding: 1px 5px;
+      }
+      .limits {
+        padding: 6px 18px 14px;
+      }
+      .limits li {
+        color: var(--mut);
+        font-size: 13.5px;
+        margin: 10px 0;
+        padding-left: 4px;
+      }
+      .limits li b {
+        color: var(--fg);
+        font-weight: 500;
+      }
+      .limits ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="intro">
+        <div>
+          <h1>
+            <span class="logo"><svg class="i" viewBox="0 0 24 24" data-i="blocks"></svg></span>Toolbox
+          </h1>
+          <p>
+            The skills, connectors and plugins your agents can use, in one place. See what a chat has loaded,
+            switch things off, sign in, and apply it to the chat without losing the conversation.
+          </p>
+        </div>
+        <div class="tag">Design v1 · 18 Oct 2026<br />Sample data · switches work</div>
+      </div>
+
+      <!-- 1. The chat's Toolbox -->
+      <div class="frame-title">
+        <span class="n">01</span>
+        <h2>A chat's Toolbox</h2>
+        <p>A tab beside Files and Changes. Try the switches.</p>
+      </div>
+      <div class="window">
+        <aside class="sidebar">
+          <div class="lights">
+            <i style="background: #ff5f57"></i><i style="background: #febc2e"></i
+            ><i style="background: #28c840"></i>
+          </div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="plus"></svg>New workspace</div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="history"></svg>History</div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="search"></svg>Search</div>
+          <div class="srow">
+            <svg class="i" viewBox="0 0 24 24" data-i="blocks"></svg>Toolbox<span class="dot"></span>
+          </div>
+          <div class="sgroup">acme-shop</div>
+          <div class="ws active"><b></b>Checkout redesign</div>
+          <div class="ws"><b></b>Fix auth redirect</div>
+          <div class="ws idle"><b></b>Search filters</div>
+        </aside>
+        <div class="main">
+          <div class="mhead">
+            <span class="t">Checkout redesign</span>
+            <span class="br"><svg class="i" viewBox="0 0 24 24" data-i="branch"></svg>checkout-redesign</span>
+            <span class="r"><svg class="i" viewBox="0 0 24 24" data-i="panel"></svg></span>
+          </div>
+          <div class="split">
+            <div class="chat">
+              <div class="msgs">
+                <div class="bubble">Wire the new checkout to Stripe, then file the follow-ups in Linear.</div>
+                <div class="tool">
+                  <svg class="i" viewBox="0 0 24 24" data-i="sparkles"></svg>Skill
+                  <span class="k">frontend-design</span>
+                </div>
+                <div class="tool">
+                  <svg class="i" viewBox="0 0 24 24" data-i="plug"></svg>GitHub
+                  <span class="k">search_code</span> · 3 results
+                </div>
+                <div class="tool">
+                  <svg class="i" viewBox="0 0 24 24" data-i="terminal"></svg><span class="k">npm test</span> ·
+                  42 passed
+                </div>
+                <div class="tool fail">
+                  <svg class="i" viewBox="0 0 24 24" data-i="alert"></svg>Linear <span>create_issue</span> ·
+                  needs sign-in
+                </div>
+                <div class="say">
+                  Checkout now creates a Stripe PaymentIntent on the server and confirms it on the page; tests
+                  pass. I couldn't file the three follow-ups because Linear isn't signed in. Connect it from
+                  the Toolbox and I'll file them.
+                </div>
+              </div>
+              <div class="composer">
+                <div class="ph">Message the agent…</div>
+                <div class="bar">
+                  <span class="pillbtn warn"
+                    ><svg class="i" viewBox="0 0 24 24" data-i="key" style="width: 14px; height: 14px"></svg
+                    >Linear · Sign in</span
+                  >
+                  <span class="send"><svg class="i" viewBox="0 0 24 24" data-i="up"></svg></span>
+                </div>
+              </div>
+            </div>
+            <div class="rpanel">
+              <div class="tabs">
+                <span class="tab"><svg class="i" viewBox="0 0 24 24" data-i="files"></svg>Files</span>
+                <span class="tab"><svg class="i" viewBox="0 0 24 24" data-i="diff"></svg>Changes</span>
+                <span class="tab on"><svg class="i" viewBox="0 0 24 24" data-i="blocks"></svg>Toolbox</span>
+                <span class="tab plus"><svg class="i" viewBox="0 0 24 24" data-i="plus"></svg></span>
+              </div>
+              <div class="tb" id="tb-desktop"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Everywhere -->
+      <div class="frame-title">
+        <span class="n">02</span>
+        <h2>Toolbox, everywhere</h2>
+        <p>The sidebar row opens it. One list for every app on this computer.</p>
+      </div>
+      <div class="window">
+        <aside class="sidebar">
+          <div class="lights">
+            <i style="background: #ff5f57"></i><i style="background: #febc2e"></i
+            ><i style="background: #28c840"></i>
+          </div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="plus"></svg>New workspace</div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="history"></svg>History</div>
+          <div class="srow"><svg class="i" viewBox="0 0 24 24" data-i="search"></svg>Search</div>
+          <div class="srow active">
+            <svg class="i" viewBox="0 0 24 24" data-i="blocks"></svg>Toolbox<span class="dot"></span>
+          </div>
+          <div class="sgroup">acme-shop</div>
+          <div class="ws"><b></b>Checkout redesign</div>
+          <div class="ws"><b></b>Fix auth redirect</div>
+          <div class="ws idle"><b></b>Search filters</div>
+        </aside>
+        <div class="main">
+          <div class="mhead">
+            <span class="t">Toolbox</span>
+            <span class="br">Studio Mac</span>
+            <span class="r"><svg class="i" viewBox="0 0 24 24" data-i="refresh"></svg></span>
+          </div>
+          <div class="screen">
+            <div class="scr-l">
+              <div class="scr-h">
+                <div>
+                  <h3>Everything on Studio Mac</h3>
+                  <p>What Claude and Codex can use on Studio Mac. Switches here apply to every project.</p>
+                </div>
+                <button class="btn-p">
+                  <svg class="i" viewBox="0 0 24 24" data-i="plus" style="width: 15px; height: 15px"></svg>Add
+                </button>
+              </div>
+              <div class="tools-row">
+                <div class="search">
+                  <svg class="i" viewBox="0 0 24 24" data-i="search" style="width: 15px; height: 15px"></svg
+                  ><input placeholder="Search" />
+                </div>
+                <div class="seg">
+                  <button class="on">All</button><button>Connectors</button><button>Skills</button
+                  ><button>Plugins</button>
+                </div>
+                <span class="need"
+                  ><svg class="i" viewBox="0 0 24 24" data-i="alert" style="width: 14px; height: 14px"></svg>2
+                  need you</span
+                >
+              </div>
+              <div class="sec">
+                <div class="sec-h">Connectors <span style="color: var(--xmut)">5</span></div>
+                <div class="list" id="scr-connectors"></div>
+              </div>
+              <div class="sec">
+                <div class="sec-h">Skills <span style="color: var(--xmut)">6</span></div>
+                <div class="list" id="scr-skills"></div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="d-head">
+                <div class="tile" style="background: #24292f; border: 1px solid #3a4048">G</div>
+                <div>
+                  <h4>GitHub</h4>
+                  <p>api.githubcopilot.com/mcp · Sign in with your account</p>
+                </div>
+              </div>
+              <div class="d-status">
+                <i></i>Working · checked 2 min ago
+                <span class="r"><button class="btn-s">Check now</button></span>
+              </div>
+              <div class="d-sec">
+                <h5>In your apps</h5>
+                <div class="d-list">
+                  <div class="d-row">
+                    <span class="app"><i style="background: #d97757"></i>Claude</span
+                    ><span class="x">Signed in</span><span class="end sw on"></span>
+                  </div>
+                  <div class="d-row">
+                    <span class="app"><i style="background: #e4e4e7"></i>Codex</span
+                    ><span class="x">Signed in</span><span class="end sw on"></span>
+                  </div>
+                  <div class="d-row">
+                    <span class="app missing">Kimi</span><span class="x">Not added</span
+                    ><button class="end btn-s">Add</button>
+                  </div>
+                </div>
+              </div>
+              <div class="d-sec">
+                <h5>Off in 1 workspace</h5>
+                <div class="d-list">
+                  <div class="d-row">
+                    <svg class="i" viewBox="0 0 24 24" data-i="branch" style="color: var(--mut)"></svg
+                    >acme-shop · search-filters<button class="end btn-s ghost">Turn on</button>
+                  </div>
+                </div>
+              </div>
+              <div class="d-sec">
+                <h5>Tools · 26</h5>
+                <div class="chips">
+                  <span class="chip">search_code</span><span class="chip">get_file_contents</span
+                  ><span class="chip">create_pull_request</span> <span class="chip">list_issues</span
+                  ><span class="chip">create_issue</span><span class="chip">get_pull_request_diff</span>
+                  <span class="chip">add_issue_comment</span><span class="chip more">+19 more</span>
+                </div>
+              </div>
+              <div class="d-foot">
+                <button class="btn-s">Edit</button><button class="btn-s">Copy to…</button
+                ><button class="btn-s ghost del">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 + 4. In the chat, and on a phone -->
+      <div class="frame-title">
+        <span class="n">03</span>
+        <h2>In the chat, and on a phone</h2>
+        <p>Quiet until something needs you. The composer pill appears only then.</p>
+      </div>
+      <div class="pair">
+        <div class="card-frame">
+          <div class="chatonly">
+            <div class="msgs">
+              <div class="bubble">Wire the new checkout to Stripe, then file the follow-ups in Linear.</div>
+              <div class="tool">
+                <svg class="i" viewBox="0 0 24 24" data-i="sparkles"></svg>Skill
+                <span class="k">frontend-design</span>
+              </div>
+              <div class="tool">
+                <svg class="i" viewBox="0 0 24 24" data-i="plug"></svg>GitHub
+                <span class="k">search_code</span> · 3 results
+              </div>
+              <div class="tool">
+                <svg class="i" viewBox="0 0 24 24" data-i="terminal"></svg><span class="k">npm test</span> ·
+                42 passed
+              </div>
+              <div class="say">
+                Checkout now creates a Stripe PaymentIntent on the server and confirms it on the page; tests
+                pass. Three follow-ups are left: webhooks, refunds and receipts.
+              </div>
+              <div class="bubble">File the three follow-ups in Linear.</div>
+              <div class="tool fail">
+                <svg class="i" viewBox="0 0 24 24" data-i="alert"></svg>Linear <span>create_issue</span> ·
+                needs sign-in
+              </div>
+              <div class="signin">
+                <div class="tile" style="background: #5e6ad2">L</div>
+                <div>
+                  <b>Linear needs you to sign in</b
+                  ><span>The agent can file the issues once you're connected.</span>
+                </div>
+                <button class="btn-p">Connect</button>
+              </div>
+              <div class="say" style="color: var(--mut)">Waiting for Linear…</div>
+            </div>
+            <div class="composer">
+              <div class="popover">
+                <div class="pop-row">
+                  <div class="tile" style="background: #5e6ad2">L</div>
+                  <div>
+                    <div>Linear</div>
+                    <div class="x" style="color: var(--warn)">Needs sign-in</div>
+                  </div>
+                  <button class="end btn-s warn">Connect</button>
+                </div>
+                <div class="pop-row">
+                  <div class="tile" style="background: #3ecf8e; color: #0b2b1c">S</div>
+                  <div>
+                    <div>Supabase</div>
+                    <div class="x" style="color: var(--bad)">Won't start: npx isn't installed</div>
+                  </div>
+                  <button class="end btn-s">Details</button>
+                </div>
+                <div class="pop-sep"></div>
+                <div class="pop-row pop-link">
+                  <svg class="i" viewBox="0 0 24 24" data-i="blocks"></svg>Open this chat's Toolbox<svg
+                    class="i end"
+                    viewBox="0 0 24 24"
+                    data-i="chev"
+                  ></svg>
+                </div>
+              </div>
+              <div class="ph">Message the agent…</div>
+              <div class="bar">
+                <span class="pillbtn warn"
+                  ><svg class="i" viewBox="0 0 24 24" data-i="alert" style="width: 14px; height: 14px"></svg>2
+                  need you</span
+                >
+                <span class="send"><svg class="i" viewBox="0 0 24 24" data-i="up"></svg></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="phone">
+          <div class="phone-in">
+            <div class="island"></div>
+            <div class="status">
+              <span>9:41</span
+              ><span style="display: flex; gap: 6px; align-items: center"
+                ><svg width="18" height="12" viewBox="0 0 18 12" fill="#fff">
+                  <rect x="0" y="8" width="3" height="4" rx="1" />
+                  <rect x="5" y="5.5" width="3" height="6.5" rx="1" />
+                  <rect x="10" y="3" width="3" height="9" rx="1" />
+                  <rect x="15" y="0" width="3" height="12" rx="1" /></svg
+                ><svg width="16" height="12" viewBox="0 0 16 12" fill="#fff">
+                  <path
+                    d="M8 2.2c2.3 0 4.4.9 6 2.4l1.2-1.2A10.2 10.2 0 0 0 8 .5C5.3.5 2.7 1.5.8 3.4L2 4.6a8.5 8.5 0 0 1 6-2.4Zm0 3.4c1.4 0 2.6.5 3.6 1.4l1.2-1.2A6.8 6.8 0 0 0 8 3.9c-1.8 0-3.5.7-4.8 1.9L4.4 7c1-.9 2.2-1.4 3.6-1.4Zm0 3.4c.5 0 1 .2 1.3.5L8 11 6.7 9.5c.3-.3.8-.5 1.3-.5Z"
+                  /></svg
+                ><svg width="26" height="12" viewBox="0 0 26 12">
+                  <rect
+                    x=".5"
+                    y=".5"
+                    width="22"
+                    height="11"
+                    rx="3.2"
+                    fill="none"
+                    stroke="#fff"
+                    stroke-opacity=".45"
+                  />
+                  <rect x="2" y="2" width="16" height="8" rx="2" fill="#fff" />
+                  <path d="M24 4v4c.8-.3 1.3-1.1 1.3-2S24.8 4.3 24 4Z" fill="#fff" fill-opacity=".45" /></svg
+              ></span>
+            </div>
+            <div class="ph-head">
+              <svg class="i" viewBox="0 0 24 24" data-i="menu" style="color: var(--mut)"></svg>
+              <div class="t"><b>Checkout redesign</b><span>acme-shop · Studio Mac</span></div>
+              <div class="r">
+                <svg class="i" viewBox="0 0 24 24" data-i="more"></svg
+                ><svg class="i" viewBox="0 0 24 24" data-i="panel"></svg>
+              </div>
+            </div>
+            <div class="ph-pick">
+              <svg class="i" viewBox="0 0 24 24" data-i="blocks" style="color: var(--mut)"></svg>Toolbox<svg
+                class="i r"
+                viewBox="0 0 24 24"
+                data-i="chevdown"
+              ></svg>
+            </div>
+            <div class="tb" id="tb-phone"></div>
+            <div class="home"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Built on -->
+      <div class="frame-title">
+        <span class="n">04</span>
+        <h2>What it's built on</h2>
+        <p>Checked against the Paseo 0.11.4 plugin SDK and Claude Code 2.1.301.</p>
+      </div>
+      <div class="built">
+        <div class="box">
+          <h3>Every part maps to something Paseo or Claude already does</h3>
+          <table>
+            <tr>
+              <td>Toolbox tab on a chat</td>
+              <td>
+                <code>addWorkspacePanel</code> with <code>context: "agent"</code>, in the workspace and the
+                Explorer
+              </td>
+            </tr>
+            <tr>
+              <td>What this chat loaded</td>
+              <td>
+                <code>agent.commands()</code> lists the chat's skills and commands; connector health from our
+                own check
+              </td>
+            </tr>
+            <tr>
+              <td>"Used 6× in this chat"</td>
+              <td>The <code>agent.turn_ended</code> hook carries the turn's timeline</td>
+            </tr>
+            <tr>
+              <td>Switches</td>
+              <td>
+                Claude's own settings: <code>skillOverrides</code> and <code>enabledPlugins</code> in
+                <code>.claude/settings.local.json</code>, <code>disabledMcpServers</code> for the folder in
+                <code>~/.claude.json</code>
+              </td>
+            </tr>
+            <tr>
+              <td>Apply skills and plugins</td>
+              <td>
+                Send <code>/reload-skills</code> or <code>/reload-plugins</code> to the chat. Both run
+                headless; no restart
+              </td>
+            </tr>
+            <tr>
+              <td>Apply connectors</td>
+              <td>
+                <code>paseo agent reload &lt;id&gt;</code> restarts the process and keeps the conversation
+              </td>
+            </tr>
+            <tr>
+              <td>New chats</td>
+              <td>
+                <code>before("agent.create")</code> can add connectors and block tools for that one chat
+              </td>
+            </tr>
+            <tr>
+              <td>Pill, sidebar dot, sign-in card</td>
+              <td>
+                <code>addComposerPill</code>, <code>addSidebarHeaderItem</code> with a popover,
+                <code>addTimelineRenderer</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>/toolbox</code> in the composer</td>
+              <td><code>addSlashCommand</code></td>
+            </tr>
+          </table>
+        </div>
+        <div class="box">
+          <h3>Limits to design around</h3>
+          <div class="limits">
+            <ul>
+              <li>
+                <b>Switches are per workspace, not per chat.</b> Claude reads them from the chat's folder, so
+                every chat in that folder shares them. Paseo usually gives each task its own worktree, so in
+                practice that's one chat.
+              </li>
+              <li>
+                <b>Connector changes restart the chat.</b> Claude can switch an MCP server on and off live,
+                but Paseo doesn't pass that through to plugins. The restart keeps the conversation.
+              </li>
+              <li>
+                <b>Sign-in is the big job.</b> HTTP connectors need OAuth in the browser, with tokens kept
+                where Claude and Codex read them.
+              </li>
+              <li>
+                <b>Codex: connectors first.</b> <code>enabled = false</code> in <code>config.toml</code>.
+                Skills on Codex come later.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const ICONS = {
+        blocks:
+          '<rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/>',
+        plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+        history:
+          '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+        search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+        branch:
+          '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+        panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+        sparkles:
+          '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+        plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+        puzzle:
+          '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>',
+        terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
+        alert:
+          '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+        key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/>',
+        up: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+        files:
+          '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
+        diff: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 13V7"/><path d="M9 17h6"/>',
+        refresh:
+          '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+        chev: '<path d="m9 18 6-6-6-6"/>',
+        chevdown: '<path d="m6 9 6 6 6-6"/>',
+        menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+        more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+        info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+        check: '<path d="M20 6 9 17l-5-5"/>',
+      };
+      const paintIcons = (root) =>
+        root.querySelectorAll("svg[data-i]").forEach((s) => {
+          s.innerHTML = ICONS[s.dataset.i] ?? "";
+        });
+
+      // One chat's view. state: "signin" | "broken"; used: times used in this chat.
+      const DATA = {
+        connectors: [
+          {
+            id: "linear",
+            name: "Linear",
+            tile: ["#5e6ad2", "L"],
+            state: "signin",
+            meta: "Needs sign-in",
+            on: true,
+            apps: ["Claude"],
+          },
+          {
+            id: "supabase",
+            name: "Supabase",
+            tile: ["#3ecf8e", "S", "#0b2b1c"],
+            state: "broken",
+            meta: "Won't start: npx isn't installed",
+            on: true,
+            apps: ["Claude", "Codex"],
+          },
+          {
+            id: "github",
+            name: "GitHub",
+            tile: ["#24292f", "G"],
+            meta: "26 tools · used 6× in this chat",
+            on: true,
+            apps: ["Claude", "Codex"],
+            border: "#3a4048",
+          },
+          {
+            id: "sentry",
+            name: "Sentry",
+            tile: ["#362d59", "S"],
+            meta: "14 tools · not used yet",
+            on: true,
+            apps: ["Claude"],
+          },
+          {
+            id: "playwright",
+            name: "Playwright",
+            tile: ["#2ead33", "P"],
+            meta: "21 tools · runs on this computer",
+            on: true,
+            apps: ["Claude", "Codex"],
+          },
+        ],
+        skills: [
+          {
+            id: "frontend-design",
+            name: "frontend-design",
+            meta: "frontend-design plugin · used once",
+            on: true,
+          },
+          { id: "deslop", name: "deslop", meta: "Yours · strip AI slop from a branch", on: true },
+          {
+            id: "seo-audit",
+            name: "seo-audit",
+            meta: "Yours · full website SEO audit",
+            on: true,
+            typed: true,
+          },
+          { id: "claude-api", name: "claude-api", meta: "Built into Claude Code", on: true },
+          { id: "ponytail", name: "ponytail", meta: "ponytail plugin", on: true },
+          { id: "remotion", name: "remotion-best-practices", meta: "Yours", on: false },
+        ],
+        plugins: [
+          { id: "figma", name: "figma", meta: "4 skills · 1 connector", on: true },
+          { id: "ponytail-p", name: "ponytail", meta: "6 skills", on: true },
+          { id: "cloudflare", name: "cloudflare", meta: "12 skills · 4 connectors", on: false },
+        ],
+      };
+      const KINDS = [
+        ["connectors", "Connectors"],
+        ["skills", "Skills"],
+        ["plugins", "Plugins"],
+      ];
+
+      function tileHtml(kind, item) {
+        if (kind === "skills")
+          return '<div class="tile neutral"><svg class="i" viewBox="0 0 24 24" data-i="sparkles"></svg></div>';
+        if (kind === "plugins")
+          return '<div class="tile neutral"><svg class="i" viewBox="0 0 24 24" data-i="puzzle"></svg></div>';
+        const [bg, letter, color] = item.tile;
+        return `<div class="tile" style="background:${bg};${color ? `color:${color};` : ""}${item.border ? `border:1px solid ${item.border}` : ""}">${letter}</div>`;
+      }
+
+      function rowHtml(kind, item) {
+        const metaClass = item.state === "signin" ? "mt w" : item.state === "broken" ? "mt b" : "mt";
+        const action =
+          item.state === "signin"
+            ? '<button class="btn-s warn">Connect</button>'
+            : item.state === "broken"
+              ? '<button class="btn-s">Details</button>'
+              : "";
+        const badge = item.typed ? `<span class="badge">only /${item.name}</span>` : "";
+        return `<div class="row" data-kind="${kind}" data-id="${item.id}">
+    ${tileHtml(kind, item)}
+    <div class="rt"><div class="nm">${item.name}${badge}</div><div class="${metaClass}">${item.meta}</div></div>
+    ${action}<button class="sw" aria-label="${item.name}"></button></div>`;
+      }
+
+      // A Toolbox panel with its own switch state, so the desktop and phone frames act on their own.
+      function mountPanel(el, { pendingStart = [] } = {}) {
+        const applied = {};
+        const current = {};
+        for (const [kind] of KINDS)
+          for (const item of DATA[kind]) applied[item.id] = current[item.id] = item.on;
+        for (const id of pendingStart) current[id] = !current[id];
+        let filter = "all";
+
+        el.innerHTML = `<div class="tb-scroll">
+      <div class="summary"><span>What this chat can use</span><span class="sep">·</span><span class="w">1 needs sign-in</span><span class="sep">·</span><span class="b">1 broken</span></div>
+      <div class="search"><svg class="i" viewBox="0 0 24 24" data-i="search" style="width:15px;height:15px"></svg><input placeholder="Search this chat's toolbox"></div>
+      <div class="seg">
+        <button data-f="all" class="on">All</button>
+        ${KINDS.map(([k, label]) => `<button data-f="${k}">${label}<span>${DATA[k].length}</span></button>`).join("")}
+      </div>
+      ${KINDS.map(
+        ([k, label]) => `<div class="sec" data-sec="${k}">
+        <div class="sec-h">${label}<button class="add"><svg class="i" viewBox="0 0 24 24" data-i="plus" style="width:14px;height:14px"></svg>Add</button></div>
+        <div class="list">${DATA[k].map((item) => rowHtml(k, item)).join("")}</div></div>`,
+      ).join("")}
+      <div class="scope"><svg class="i" viewBox="0 0 24 24" data-i="info" style="width:15px;height:15px;margin-top:1px"></svg>
+        <span>Switches apply to every chat in <b style="color:var(--mut);font-weight:500">checkout-redesign</b>. To change them for all projects, <a href="#">open Toolbox</a>.</span></div>
+    </div>
+    <div class="pending"><div class="pt"><b></b><span></span></div>
+      <button class="btn-s ghost" data-act="undo">Undo</button><button class="btn-p" data-act="apply">Apply</button></div>`;
+        paintIcons(el);
+
+        const pending = el.querySelector(".pending");
+        const changed = () => Object.keys(current).filter((id) => current[id] !== applied[id]);
+        const kindOf = (id) => KINDS.find(([k]) => DATA[k].some((i) => i.id === id))[0];
+        const nameOf = (id) => DATA[kindOf(id)].find((i) => i.id === id).name;
+
+        function render() {
+          el.querySelectorAll(".row").forEach((row) => {
+            const on = current[row.dataset.id];
+            row.querySelector(".sw").classList.toggle("on", on);
+            row.classList.toggle("off", !on);
+            row.classList.toggle("changed", on !== applied[row.dataset.id]);
+          });
+          el.querySelectorAll("[data-sec]").forEach((s) => {
+            s.style.display = filter === "all" || filter === s.dataset.sec ? "" : "none";
+          });
+          el.querySelectorAll("[data-f]").forEach((b) => b.classList.toggle("on", b.dataset.f === filter));
+          const ids = changed();
+          pending.classList.remove("done");
+          pending.classList.toggle("show", ids.length > 0);
+          if (!ids.length) return;
+          const restarts = ids.some((id) => kindOf(id) === "connectors");
+          pending.querySelector("b").textContent =
+            ids.length === 1
+              ? `Turn ${nameOf(ids[0])} ${current[ids[0]] ? "on" : "off"}`
+              : `${ids.length} changes`;
+          pending.querySelector(".pt span").textContent = restarts
+            ? "Restarts the chat. History stays."
+            : "Reloads in place. No restart.";
+          pending.querySelector('[data-act="apply"]').textContent = restarts ? "Restart & apply" : "Apply";
+        }
+
+        el.addEventListener("click", (e) => {
+          const sw = e.target.closest(".sw");
+          if (sw) {
+            const id = sw.closest(".row").dataset.id;
+            current[id] = !current[id];
+            render();
+            return;
+          }
+          const f = e.target.closest("[data-f]");
+          if (f) {
+            filter = f.dataset.f;
+            render();
+            return;
+          }
+          const act = e.target.closest("[data-act]")?.dataset.act;
+          if (act === "undo") {
+            for (const id of changed()) current[id] = applied[id];
+            render();
+          }
+          if (act === "apply") {
+            const btn = e.target.closest("[data-act]");
+            btn.textContent = "Applying…";
+            setTimeout(() => {
+              Object.assign(applied, current);
+              el.querySelectorAll(".row").forEach((r) => r.classList.remove("changed"));
+              pending.classList.add("done");
+              pending.querySelector("b").textContent = "Applied to this chat";
+              pending.querySelector(".pt span").textContent =
+                "The agent sees the change from its next message.";
+              setTimeout(render, 1800);
+            }, 900);
+          }
+        });
+        render();
+      }
+
+      // Toolbox screen rows: which apps have each item, and a switch for every project.
+      function screenRows(kind, el) {
+        el.innerHTML = DATA[kind]
+          .map((item) => {
+            const apps =
+              (item.apps ?? ["Claude"])
+                .map(
+                  (a) =>
+                    `<span class="app"><i style="background:${a === "Claude" ? "#d97757" : "#e4e4e7"}"></i>${a}</span>`,
+                )
+                .join("") +
+              ((item.apps ?? ["Claude"]).includes("Codex") || kind !== "connectors"
+                ? ""
+                : '<span class="app missing">+ Codex</span>');
+            const meta =
+              item.state === "signin"
+                ? '<div class="mt w">Needs sign-in in Claude</div>'
+                : item.state === "broken"
+                  ? `<div class="mt b">${item.meta}</div>`
+                  : `<div class="mt">${kind === "connectors" ? item.meta.split(" · ")[0] + " · working" : item.meta}</div>`;
+            return `<div class="trow${item.id === "github" ? " sel" : ""}">${tileHtml(kind, item)}
+      <div class="rt"><div class="nm">${item.name}${item.typed ? `<span class="badge">only /${item.name}</span>` : ""}</div>${meta}</div>
+      <div class="apps">${apps}</div><span class="sw${item.on ? " on" : ""}"></span></div>`;
+          })
+          .join("");
+      }
+
+      paintIcons(document);
+      mountPanel(document.getElementById("tb-desktop"), { pendingStart: ["sentry"] });
+      mountPanel(document.getElementById("tb-phone"), { pendingStart: ["deslop"] });
+      screenRows("connectors", document.getElementById("scr-connectors"));
+      screenRows("skills", document.getElementById("scr-skills"));
+      paintIcons(document);
+    </script>
+  </body>
+</html>

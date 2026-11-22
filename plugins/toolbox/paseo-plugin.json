@@ -1,0 +1,10 @@
+{
+  "id": "toolbox",
+  "name": "Toolbox",
+  "description": "The skills, connectors and plugins of your Claude, Codex and OpenCode chats: switch them per workspace, set tool permissions, sign in, and apply without losing the conversation.",
+  "icon": "assets/icon.png",
+  "requirements": {
+    "paseo": ">=0.13.0"
+  },
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts"]]
+}
