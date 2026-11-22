@@ -20,8 +20,8 @@ import {
   useWindowDimensions,
   type PressableStateCallbackType,
 } from "react-native";
-import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useUi } from "./styles";
+import { Icon, Modal as Sheet, TextInput } from "@getpaseo/plugin/client/ui";
+import { UiContext, useUi } from "./styles";
 
 /** react-native-web adds `hovered`; native leaves it undefined. */
 export type PressState = PressableStateCallbackType & { hovered?: boolean };
@@ -117,7 +117,8 @@ export function Menu({
   pages?: Record<string, MenuPage>;
   children: ReactNode;
 }) {
-  const { s, c, touch } = useUi();
+  const ui = useUi();
+  const { s, c, touch } = ui;
   const window = useWindowDimensions();
   const [rect, setRect] = useState<Rect | null>(null);
   const [page, setPage] = useState<{ id: string; rect: Rect | null } | null>(null);
@@ -157,37 +158,34 @@ export function Menu({
   const current = page ? pages[page.id] : undefined;
 
   if (touch) {
+    // Paseo's own sheet: a plain React Native Modal opened from inside the phone sidebar could not
+    // be dismissed on iOS. The sheet renders in its own tree, so the styles are handed in again.
     return (
-      <Modal transparent visible={open} animationType="fade" onRequestClose={onClose}>
-        <MenuContext.Provider value={api}>
-          <Pressable accessibilityLabel="Close menu" style={s.sheetBackdrop} onPress={onClose} />
-          <View style={s.sheet}>
-            <View style={s.sheetHandle}>
-              <View style={s.sheetHandleBar} />
-            </View>
-            <View style={s.sheetHeader}>
+      <Sheet title={current?.title ?? title} open={open} onOpenChange={(next) => !next && onClose()}>
+        <Sheet.Content scrollable={false} contentContainerStyle={s.sheetBody}>
+          <UiContext.Provider value={ui}>
+            <MenuContext.Provider value={api}>
               {current ? (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Back"
-                  hitSlop={8}
+                  accessibilityLabel={`Back to ${title}`}
                   onPress={() => setPage(null)}
-                  style={s.sheetBack}
+                  style={(state: PressState) => [s.menuItem, (state.hovered || state.pressed) && s.pressed]}
                 >
-                  <Icon name="ChevronLeft" size={18} color={c.foregroundMuted} />
+                  <View style={s.menuLeading}>
+                    <Icon name="ChevronLeft" size={16} color={c.foregroundMuted} />
+                  </View>
+                  <Text style={s.menuValue}>{title}</Text>
                 </Pressable>
               ) : null}
-              <Text numberOfLines={1} style={s.sheetTitle}>
-                {current?.title ?? title}
-              </Text>
-            </View>
-            {current?.header}
-            <ScrollView style={{ maxHeight: window.height * 0.8 }}>
-              <View style={s.menuPage}>{current?.content ?? children}</View>
-            </ScrollView>
-          </View>
-        </MenuContext.Provider>
-      </Modal>
+              {current?.header}
+              <ScrollView style={{ maxHeight: window.height * 0.6 }}>
+                <View style={s.menuPage}>{current?.content ?? children}</View>
+              </ScrollView>
+            </MenuContext.Provider>
+          </UiContext.Provider>
+        </Sheet.Content>
+      </Sheet>
     );
   }
 
