@@ -19,6 +19,7 @@ import { BotSettingsPage } from "./client/home/BotSettingsPage";
 import { BotTab } from "./client/home/BotTab";
 import { LibraryPage } from "./client/home/LibraryPage";
 import { NewBotPage } from "./client/home/NewBotPage";
+import { NewChatPage } from "./client/home/NewChatPage";
 import { PaseoBotsSidebar } from "./client/PaseoSidebar";
 import { BackBar } from "./client/library/parts";
 import { useTypeScale } from "./client/typography";
@@ -81,6 +82,7 @@ export default function contribute(client: PluginClientContext) {
   for (const id of ["bot-library", "bot-library-item"]) {
     client.addScreen({ id, title: (params) => params.title || "Skills & Tools", Component: (props) => <LibraryPage key={JSON.stringify(props.params)} {...props} openScreen={openScreen} /> });
   }
+  client.addScreen({ id: "bot-new-chat", title: (params) => params.title || "New chat", Component: (props) => <NewChatPage {...props} openScreen={openScreen} openPanel={openPanel} /> });
   client.addScreen({ id: "bot-new", title: "New bot", Component: (props) => <NewBotPage key={props.params.n ?? ""} {...props} openScreen={openScreen} /> });
   client.addWorkspacePanel({ id: "bot", title: "Bot", icon: "Bot", locations: ["explorer"], Component: (props) => <BotTab {...props} openScreen={openScreen} /> });
   client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: PaseoBotsSidebar });

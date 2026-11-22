@@ -16,7 +16,7 @@ export interface FawzyBridge {
   /** The bot's home (bot-home). */
   openBot(botId: string): void;
   openChat(botId: string, chatId: string): void;
-  /** The bot's home, ready to type a new chat. */
+  /** A new chat with the bot. */
   newChat(botId: string): void;
   /** The New bot page. */
   newBot(): void;
@@ -44,8 +44,8 @@ export function registerBridge(client: Pick<PluginClientContext, "rpc" | "openSc
     listBots,
     openBot: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title } })),
     openChat: (botId, chatId) => open(botId, (title) => chatScreen({ botId, chatId }, title)),
-    // The bot's home with its message box focused; the chat opens in Paseo once you send.
-    newChat: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title, compose: String(Date.now()) } })),
+    // Paseo-like new chat; it opens in Paseo's own view once you send.
+    newChat: (botId) => open(botId, (title) => ({ screenId: "bot-new-chat", params: { botId, title } })),
     newBot: () => client.openScreen({ screenId: "bot-new", params: { n: String(Date.now()) } }),
     Avatar,
   };

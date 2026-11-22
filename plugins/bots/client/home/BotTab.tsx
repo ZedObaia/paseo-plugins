@@ -54,7 +54,7 @@ export function BotTab(props: PluginWorkspacePanelProps & Pick<BotPageActions, "
           </View>
           <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
             <Button colors={colors} icon="House" label="Home" onPress={() => home()} />
-            <Button colors={colors} icon="Plus" label="New chat" onPress={() => home({ compose: String(Date.now()) })} />
+            <Button colors={colors} icon="Plus" label="New chat" onPress={() => openScreen({ screenId: "bot-new-chat", params: { botId: bot.id, title: name } })} />
           </View>
           <BotInfo
             colors={colors}

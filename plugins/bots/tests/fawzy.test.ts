@@ -38,7 +38,7 @@ describe("bridge", () => {
     expect(openScreen.mock.calls.map(([input]) => input)).toMatchObject([
       { screenId: "bot-home", params: { botId: "bot-a", title: "Scout" } },
       { screenId: "bot-chat", params: { botId: "bot-a", chatId: "chat-1", title: "Scout" } },
-      { screenId: "bot-home", params: { botId: "bot-a", title: "Scout", compose: expect.any(String) } },
+      { screenId: "bot-new-chat", params: { botId: "bot-a", title: "Scout" } },
       { screenId: "bot-new" },
     ]);
 

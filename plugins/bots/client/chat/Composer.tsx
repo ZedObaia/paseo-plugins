@@ -75,6 +75,8 @@ interface ComposerProps {
   /** The chat's live agent snapshot: pending permissions (stop), last usage (context meter). */
   agent?: PaseoAgent | null;
   onStart(message: OutgoingMessage): Promise<void>;
+  /** More controls beside Add attachment, like Paseo's model pills. */
+  toolbar?: ReactNode;
 }
 
 /** One composer per chat, so each chat keeps its own draft, height and queue. */
@@ -92,7 +94,7 @@ const commandCache = new Map<string, Promise<{ commands: SlashCommand[]; error: 
 // send error above a surface1 card with a borderAccent frame, radius 16; attachment tray,
 // auto-growing input, then a toolbar with "Add attachment" on the left and the context
 // meter and send/stop button on the right.
-function ChatComposer({ colors, bot, host, agentId, running, layout, keyboardOpen, agent, onStart, draftKey }: ComposerProps & { draftKey: string }) {
+function ChatComposer({ colors, bot, host, agentId, running, layout, keyboardOpen, agent, onStart, toolbar, draftKey }: ComposerProps & { draftKey: string }) {
   const toast = useToast();
   const menu = useMenu();
   const upload = useRpc(uploadRpc);
@@ -588,6 +590,7 @@ function ChatComposer({ colors, bot, host, agentId, running, layout, keyboardOpe
             <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginHorizontal: -6 }}>
               <View style={{ minWidth: 0, flexShrink: 1, flexGrow: 1, flexDirection: "row", alignItems: "flex-end" }}>
                 <AttachButton colors={colors} anchorRef={attachRef} iconSize={buttonIconSize} disabled={!host.api || creationPending} onPress={() => void openAttachMenu()} />
+                {toolbar}
               </View>
               <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }}>
                 {agentId ? (

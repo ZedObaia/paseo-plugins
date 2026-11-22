@@ -1,18 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginOpenScreenInput, PluginScreenProps } from "@getpaseo/plugin/client";
-import { useRpc } from "@getpaseo/plugin/client";
-import { ScrollView, TextInput, useToast } from "@getpaseo/plugin/client/ui";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View, type TextInput as NativeTextInput } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { EMPTY_LIBRARY, type Bot } from "../../shared/bot";
-import { chatStartRpc } from "../../shared/fawzy-rpc";
 import { Avatar, AvatarTheme } from "../Avatar";
 import { listBotChats } from "../chat-directory";
-import { isImeComposing, type ComposerKeyEvent } from "../chat/composer/logic";
 import { useBotHost, useChatInvalidation, type LocalHost } from "../data";
 import { LibraryNavigation } from "../navigation";
-import { errorText, nativeTokens, useHover } from "../native";
+import { nativeTokens, useHover } from "../native";
 import { AppsPicker } from "../panel/AppsPicker";
 import { Button, CardNote } from "../panel/controls";
 import { LibraryPicker } from "../panel/LibraryPicker";
@@ -61,9 +58,9 @@ export function chatOpener(navigation: Navigation, openScreen: (input: PluginOpe
 }
 
 /**
- * One bot's home (screen "bot-home", params botId and title, compose to focus the message box):
- * who it is, a message box that starts a chat, its chats by state and suggested tasks, with what
- * it has been doing beside them. Chats open in Paseo's own view.
+ * One bot's home (screen "bot-home", params botId, title and optionally tab): who it is, New chat,
+ * its chats by state and suggested tasks, with what it has been doing beside them. Chats open in
+ * Paseo's own view.
  */
 export function BotHome(props: Props) {
   const { colors } = props.theme;
@@ -77,12 +74,10 @@ export function BotHome(props: Props) {
   );
 }
 
-function HomeContent({ theme, layout, host, params, navigation, openScreen, openPanel }: Props) {
+function HomeContent({ theme, host, params, navigation, openScreen }: Props) {
   const colors = theme.colors;
   useTypeScale();
   useChatInvalidation();
-  const toast = useToast();
-  const start = useRpc(chatStartRpc);
   const { settings, commit } = useBotSettings();
   const [tab, setTab] = useState<"home" | "connectors">(params.tab === "connectors" ? "connectors" : "home");
   const [width, setWidth] = useState(0);
@@ -106,11 +101,6 @@ function HomeContent({ theme, layout, host, params, navigation, openScreen, open
   const status = headerStatus(chats.data ?? []);
   const wide = width >= TWO_COLUMNS;
   const openChat = chatOpener(navigation, openScreen, bot, host.id);
-  const send = async (prompt: string) => {
-    const { chatId, workspaceId } = await start({ botId: bot.id, prompt });
-    openChat(chatId);
-    if (workspaceId) openPanel(workspaceId);
-  };
   const info = (
     <BotInfo
       colors={colors}
@@ -146,23 +136,11 @@ function HomeContent({ theme, layout, host, params, navigation, openScreen, open
                   </View>
                 ) : null}
               </View>
-              <Button colors={colors} icon="Settings" label="Settings" onPress={() => openScreen({ screenId: "bot-settings", params: { botId: bot.id, title: `${name} settings` } })} />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button colors={colors} variant="default" icon="Plus" label="New chat" onPress={() => openScreen({ screenId: "bot-new-chat", params: { botId: bot.id, title: name } })} />
+                <Button colors={colors} icon="Settings" label="Settings" onPress={() => openScreen({ screenId: "bot-settings", params: { botId: bot.id, title: `${name} settings` } })} />
+              </View>
             </View>
-            <MessageBox
-              colors={colors}
-              name={name}
-              focusKey={params.compose}
-              submitOnEnter={layout.platform === "web" && !layout.compact}
-              onSend={async (prompt) => {
-                try {
-                  await send(prompt);
-                  return true;
-                } catch (error) {
-                  toast.error(errorText(error));
-                  return false;
-                }
-              }}
-            />
             <View style={{ flexDirection: "row", gap: 4, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 20 }}>
               <Tab colors={colors} label="Home" active={tab === "home"} onPress={() => setTab("home")} />
               <Tab colors={colors} label="Connectors" active={tab === "connectors"} onPress={() => setTab("connectors")} />
@@ -180,48 +158,6 @@ function HomeContent({ theme, layout, host, params, navigation, openScreen, open
         </ScrollView>
       </View>
     </LibraryNavigation.Provider>
-  );
-}
-
-/** Starts a new chat; Enter sends on desktop. `focusKey` changes when New chat brings you here. */
-function MessageBox({ colors, name, focusKey, submitOnEnter, onSend }: { colors: Colors; name: string; focusKey: string | undefined; submitOnEnter: boolean; onSend(prompt: string): Promise<boolean> }) {
-  const tokens = nativeTokens(colors);
-  const input = useRef<NativeTextInput>(null);
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  useEffect(() => {
-    if (focusKey) input.current?.focus();
-  }, [focusKey]);
-  const send = async () => {
-    const prompt = text.trim();
-    if (!prompt || sending) return;
-    setSending(true);
-    if (await onSend(prompt)) setText("");
-    setSending(false);
-  };
-  return (
-    <View style={{ borderWidth: 1, borderColor: tokens.borderAccent, borderRadius: 16, backgroundColor: colors.surface1, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, gap: 6, marginBottom: 24 }}>
-      <TextInput
-        ref={input}
-        multiline
-        value={text}
-        onChangeText={setText}
-        editable={!sending}
-        placeholder={`Message ${name}`}
-        placeholderTextColor={colors.foregroundMuted}
-        accessibilityLabel={`Message ${name}`}
-        onKeyPress={(event) => {
-          const key = event.nativeEvent as unknown as ComposerKeyEvent;
-          if (!submitOnEnter || key.key !== "Enter" || key.shiftKey || isImeComposing(key)) return;
-          event.preventDefault?.();
-          void send();
-        }}
-        style={{ minHeight: 46, maxHeight: 200, fontSize: ui(15), color: colors.foreground, ...({ outlineStyle: "none" } as object) }}
-      />
-      <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-        <Button colors={colors} variant="default" icon="ArrowUp" label="Send" loading={sending} disabled={!text.trim()} onPress={() => void send()} />
-      </View>
-    </View>
   );
 }
 
