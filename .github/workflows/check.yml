@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         plugin:
-          [resources, devices, projects-everywhere, ports, auto-fetch, linear, databases, toolbox, status-sidebar, bots]
+          [resources, devices, projects-everywhere, ports, auto-fetch, linear, databases, quick-commands, toolbox, status-sidebar, bots]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
