@@ -22,6 +22,8 @@ import {
   shortenPath,
   statusFromMetadata,
   taskProgress,
+  countedProgress,
+  stepsFromMetadata,
   compareProjectRows,
   isMainCheckout,
   missingMainCheckouts,
@@ -315,4 +317,30 @@ test("main checkouts: the project's own folder in a git project, first among its
     [...rows].sort(compareProjectRows("created")).map((entry) => entry.ref.key),
     ["main", "new", "old"],
   );
+});
+
+test("a reported plan: its steps as tasks and the line counted against them", () => {
+  const steps = stepsFromMetadata({
+    text: "Running the tests",
+    steps: [
+      { text: "Read", status: "completed" },
+      { text: "Test", status: "in_progress" },
+      { text: "Ship", status: "odd" },
+      { text: 5 },
+    ],
+  });
+  assert.deepEqual(
+    steps.map((step) => [step.text, step.status, step.completed]),
+    [
+      ["Read", "completed", true],
+      ["Test", "in_progress", false],
+      ["Ship", "pending", false],
+    ],
+  );
+  assert.deepEqual(stepsFromMetadata({ text: "x" }), []);
+  assert.deepEqual(countedProgress({ text: "Running the tests", fraction: null }, steps), {
+    text: "1 of 3 · Running the tests",
+    fraction: 1 / 3,
+  });
+  assert.deepEqual(countedProgress({ text: "Busy", fraction: 0.4 }, []), { text: "Busy", fraction: 0.4 });
 });

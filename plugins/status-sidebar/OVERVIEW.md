@@ -15,7 +15,8 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
 - A running chat or workspace shows a spinner and its current step with a progress bar ("2 of 4 ·
   Running the test suite"). Every agent the host opens, on any provider, is told to keep its task
   list current (Claude's tasks, Codex's plan, other agents' todos) or call the `report_progress`
-  tool this plugin gives it; Claude Code's task tools are switched on for it. A line an agent leaves
+  tool this plugin gives it with its whole plan, each step marked pending, in progress or done, so
+  the hover card lists what's next either way; Claude Code's task tools are switched on for it. A line an agent leaves
   behind clears when its turn ends. Fawzy's bots can also use `set_status`.
 - Bots and Workspaces fold away from their headers.
 - One **Workspaces** section: pinned workspaces first, marked with a pin, then the projects. Its

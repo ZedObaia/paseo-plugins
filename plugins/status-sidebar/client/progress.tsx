@@ -1,5 +1,6 @@
-// Progress under a running row: what a bot said with Fawzy's set_status tool, else the agent's
-// newest task list (Claude's todos, Codex's plan), followed live from its timeline.
+// Progress under a running row: the agent's newest task list (Claude's todos, Codex's plan),
+// followed live from its timeline, else the plan it sent with report_progress; and the line it
+// reported (report_progress, or a bot's set_status), else the list's current step.
 
 import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
@@ -8,7 +9,9 @@ import type { PluginAgentSnapshot } from "@getpaseo/plugin";
 import {
   BOT_STATUS_KEY,
   PROGRESS_KEY,
+  countedProgress,
   statusFromMetadata,
+  stepsFromMetadata,
   taskProgress,
   type Progress,
   type TaskItem,
@@ -30,9 +33,13 @@ export function useAgentProgress(agent: PluginAgentSnapshot | null | undefined):
 }
 
 export function useAgentWork(agent: PluginAgentSnapshot | null | undefined): AgentWork {
+  const report = agent?.metadata[PROGRESS_KEY];
   const said = agent
-    ? (statusFromMetadata(agent.metadata[PROGRESS_KEY]) ?? statusFromMetadata(agent.metadata[BOT_STATUS_KEY]))
+    ? (statusFromMetadata(report) ?? statusFromMetadata(agent.metadata[BOT_STATUS_KEY]))
     : null;
+  // Parsed afresh each render, so kept by value: the row hands this to its hover card on change.
+  const stepsKey = JSON.stringify(stepsFromMetadata(report));
+  const reported = useMemo(() => JSON.parse(stepsKey) as TaskItem[], [stepsKey]);
   const running = agent?.status === "running";
   const host = agent?.hostId;
   const id = agent?.id;
@@ -59,10 +66,14 @@ export function useAgentWork(agent: PluginAgentSnapshot | null | undefined): Age
       stop();
     };
   }, [running, host, id]);
-  const items = running ? tasks : NO_TASKS;
+  const own = running ? tasks : NO_TASKS;
+  const items = own.length ? own : running ? reported : NO_TASKS;
   return useMemo(
-    () => ({ progress: said ?? taskProgress(items), items }),
-    [said?.text, said?.fraction, items],
+    () => ({
+      progress: said ? (own.length ? said : countedProgress(said, items)) : taskProgress(items),
+      items,
+    }),
+    [said?.text, said?.fraction, own, items],
   );
 }
 

@@ -454,6 +454,29 @@ export function statusFromMetadata(value: unknown): Progress | null {
   return { text: text.trim(), fraction };
 }
 
+/** The plan an agent sent with report_progress, as task items. */
+export function stepsFromMetadata(value: unknown): TaskItem[] {
+  const steps = value && typeof value === "object" ? (value as { steps?: unknown }).steps : undefined;
+  if (!Array.isArray(steps)) return [];
+  return steps.flatMap((step): TaskItem[] => {
+    if (!step || typeof step !== "object") return [];
+    const { text, status } = step as { text?: unknown; status?: unknown };
+    if (typeof text !== "string" || !text.trim()) return [];
+    const known = status === "completed" || status === "in_progress" ? status : "pending";
+    return [{ text: text.trim(), completed: known === "completed", status: known }];
+  });
+}
+
+/** A reported line with how many of its steps are done: "2 of 5 · Running the test suite". */
+export function countedProgress(said: Progress, steps: readonly TaskItem[]): Progress {
+  if (!steps.length) return said;
+  const done = steps.filter(taskDone).length;
+  return {
+    text: `${done} of ${steps.length} · ${said.text}`,
+    fraction: said.fraction ?? done / steps.length,
+  };
+}
+
 export type AttentionReason = "needs_input" | "failed" | "attention";
 
 /** Most urgent first, as the bell lists them. */

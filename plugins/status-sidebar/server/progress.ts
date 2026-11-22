@@ -1,6 +1,7 @@
 // Every agent this host opens, on any provider, is told to show its progress in the sidebar: with
 // its own task list where it has one (Paseo turns Claude's tasks, Codex's plan and other agents'
-// todos into the same timeline item), else with the report_progress tool added here.
+// todos into the same timeline item), else with the report_progress tool added here, which carries
+// the whole plan too so the hover card can show what's done and what's next.
 
 import { defineAgentTool, type AgentToolDefinition } from "@getpaseo/plugin/server";
 import { z } from "zod";
@@ -10,7 +11,8 @@ export const INSTRUCTIONS = [
   "Progress in the Paseo sidebar: the user follows your work from their sidebar, so for any task with three or more steps, always report your progress; don't skip it.",
   "In Claude Code use TaskCreate and TaskUpdate (load them with ToolSearch first if they are deferred): create one task per step before you start, set each to in_progress as you begin it and to completed when it is done.",
   "In Codex keep the plan tool updated the same way.",
-  'Any other agent, or one without a task tool, calls report_progress (mcp__paseo__report_progress in Claude Code) at each step with a short present-tense label such as "Running the test suite" and the share done.',
+  'Any other agent, or one without a task tool, calls report_progress (mcp__paseo__report_progress in Claude Code) at each step with a short present-tense label such as "Running the test suite", the share done, and the whole plan as steps, each with its status (pending, in_progress or completed), so the user sees what is done and what is next.',
+  "Whenever you use report_progress instead of a task tool, send every step each time, not only the current one.",
   "Skip it only for quick one-step answers.",
 ].join(" ");
 
@@ -32,11 +34,29 @@ export const reportProgress = defineAgentTool({
       .max(1)
       .optional()
       .describe("Share of the work done, from 0 to 1, when you can tell."),
+    steps: z
+      .array(
+        z.object({
+          text: z.string().max(80).describe('The step, e.g. "Run the test suite".'),
+          status: z.enum(["pending", "in_progress", "completed"]),
+        }),
+      )
+      .max(30)
+      .optional()
+      .describe("Your whole plan, every step with its status, in order. Send all of them each time."),
   }),
-  async execute({ text, progress }, { agent, paseo }) {
+  async execute({ text, progress, steps }, { agent, paseo }) {
     const line = text.replace(/\s+/g, " ").trim();
+    const plan = (steps ?? [])
+      .map((step) => ({ text: step.text.replace(/\s+/g, " ").trim(), status: step.status }))
+      .filter((step) => step.text);
     const value = line
-      ? { text: line, progress: progress ?? null, updatedAt: new Date().toISOString() }
+      ? {
+          text: line,
+          progress: progress ?? null,
+          ...(plan.length ? { steps: plan } : {}),
+          updatedAt: new Date().toISOString(),
+        }
       : null;
     await paseo.agents.ref(agent.id).setMetadata({ [PROGRESS_KEY]: value });
     return { text: line ? "Shown in the sidebar." : "Cleared." };
