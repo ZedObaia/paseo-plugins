@@ -1,12 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc, useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
+import { useRpc, useSettings, useWorkspace, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
 import { ActivityIndicator, Platform, Text, View } from "react-native";
-import { inputRpc, type Assignment, type Device } from "../shared/contracts";
+import { agentSettings, inputRpc, screenshotRpc, type Assignment, type Device } from "../shared/contracts";
 import { splitDevices } from "../shared/select";
 import { canDuplicate, canTurnOff, canTurnOn, onFirst, useAction, useDeviceRpcs, useDevices } from "./data";
+import { DeviceSettings } from "./controls";
 import { LiveScreen } from "./live";
+import { copyScreenshot } from "./screenshot";
+import { AGENT_TOOLS } from "./settings";
 import { Button, Card, DeviceRow, IconButton, StatusLine } from "./ui";
 
 type Workspace = { workspaceId: string; workspaceName: string; directory: string };
@@ -16,8 +19,10 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
   const devices = useDevices(host.id);
   const [picking, setPicking] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  // which way the shown device's last picture faced; a device not seen yet counts as portrait
-  const [shape, setShape] = useState<{ deviceId: string; landscape: boolean } | null>(null);
+  // which way each device's last picture faced; a device not seen yet counts as portrait
+  const [wide, setWide] = useState<Record<string, boolean>>({});
+  // every device side by side, rather than one at a time
+  const [grid, setGrid] = useState(false);
   const c = theme.colors;
   if (!ws || !devices.data) {
     return (
@@ -37,7 +42,10 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
     .filter((a) => a.workspaceId === workspaceId)
     .flatMap((a) => all.filter((d) => d.id === a.deviceId));
   const device = mine.find((d) => d.id === selected) ?? mine[0];
-  const landscape = shape !== null && shape.deviceId === device?.id && shape.landscape;
+  const landscape = device ? (wide[device.id] ?? false) : false;
+  const onShape = (deviceId: string) => (landscape: boolean) =>
+    setWide((all) => (all[deviceId] === landscape ? all : { ...all, [deviceId]: landscape }));
+  const tiled = grid && mine.length > 1;
   const picker = (
     <DevicePicker
       theme={theme}
@@ -73,6 +81,12 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
                   onPress={() => setSelected(d.id)}
                 />
               ))}
+              <IconButton
+                theme={theme}
+                icon={tiled ? "Square" : "LayoutGrid"}
+                label={tiled ? "Show one device" : "Show every device side by side"}
+                onPress={() => setGrid(!tiled)}
+              />
             </View>
           ) : null}
           <Toolbar
@@ -83,16 +97,51 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
             landscape={landscape}
             onAdd={() => setPicking(true)}
           />
-          <AgentTools theme={theme} hostId={host.id} device={device} />
-          {device.state === "booted" ? (
+          <AgentTools theme={theme} />
+          {tiled ? (
+            // every device streams; the selected one is what the toolbar and the keyboard act on
+            // rows share the height when the tiles wrap, as in a narrow pane
+            <View
+              style={{ flex: 1, flexDirection: "row", flexWrap: "wrap", alignContent: "stretch", gap: 8 }}
+            >
+              {mine.map((d) => (
+                <View
+                  key={d.id}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    minHeight: 240,
+                    gap: 4,
+                    padding: 4,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: d.id === device.id ? c.accent : c.border,
+                  }}
+                >
+                  <Text style={{ color: c.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
+                    {d.name}
+                  </Text>
+                  {d.state === "booted" ? (
+                    <LiveScreen
+                      key={d.id}
+                      theme={theme}
+                      deviceId={d.id}
+                      onShape={onShape(d.id)}
+                      onActivate={() => setSelected(d.id)}
+                    />
+                  ) : (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                      {canTurnOn(d) ? <BootButton theme={theme} hostId={host.id} device={d} /> : null}
+                      {d.state === "booting" ? <ActivityIndicator color={c.foregroundMuted} /> : null}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          ) : device.state === "booted" ? (
             // keyed: a new device starts with an empty picture, not taps on the old one's
             <>
-              <LiveScreen
-                key={device.id}
-                theme={theme}
-                deviceId={device.id}
-                onShape={(wide) => setShape({ deviceId: device.id, landscape: wide })}
-              />
+              <LiveScreen key={device.id} theme={theme} deviceId={device.id} onShape={onShape(device.id)} />
               {layout.compact && Platform.OS !== "web" ? (
                 <Text style={{ color: c.foregroundMuted, fontSize: 12, textAlign: "center" }}>
                   Swipe sideways with two fingers: one finger moves Paseo's panels.
@@ -115,8 +164,8 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
             Pick a device for {ws.name}
           </Text>
           <Text style={{ color: c.foregroundMuted }}>
-            It stays with this workspace: other workspaces can't take it without asking. Once you allow agent
-            tools on it, agents you start here can drive it too.
+            It stays with this workspace: other workspaces can't take it without asking. Once agent tools are
+            on, agents you start here can drive it too.
           </Text>
           {picker}
         </ScrollView>
@@ -125,60 +174,51 @@ export function DevicePanel({ theme, layout, host, workspaceId }: PluginWorkspac
   );
 }
 
-/** What agent-device installs on a device the first time an agent drives it. */
-const installs = (device: Device) =>
-  device.platform === "ios"
-    ? "agent-device builds its XCTest runner app with Xcode on this Mac and installs it on the simulator."
-    : `agent-device installs two helper apps it ships with on the ${device.kind === "physical" ? "phone" : "emulator"}: one that reads the screen's layout and one keyboard for typing.`;
-
 /**
- * Whether agents started in this workspace get tools to drive the device. Off until the user allows
- * it here: the first time an agent uses a device, agent-device installs its helpers on it.
+ * Shown until the user turns agent tools on, once for every device, after being told what that
+ * installs; they turn them off again in the plugin's settings.
  */
-function AgentTools({ theme, hostId, device }: { theme: PluginTheme; hostId: string; device: Device }) {
-  const { agentTools } = useDeviceRpcs();
-  const { busy, perform } = useAction(hostId);
+function AgentTools({ theme }: { theme: PluginTheme }) {
+  const settings = useSettings(agentSettings);
   const [asking, setAsking] = useState(false);
   const c = theme.colors;
-  const set = async (allow: boolean) => {
-    if (await perform(() => agentTools({ deviceId: device.id, allow }))) setAsking(false);
+  if (settings.status === "loading" || settings.status === "error") return null;
+  if (settings.status === "ready" && settings.values.agentTools) return null;
+  const allow = async () => {
+    if (await settings.save({ agentTools: true }, settings.revision)) setAsking(false);
   };
   return (
     <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-      <Icon name={device.agentTools ? "Bot" : "BotOff"} size={14} color={c.foregroundMuted} />
+      <Icon name="BotOff" size={14} color={c.foregroundMuted} />
       <Text style={{ color: c.foregroundMuted, fontSize: 12, flex: 1, minWidth: 160 }}>
-        {device.agentTools
-          ? "Agents you start in this workspace can drive this device."
-          : "Agents can't drive this device yet."}
+        Agents can't drive devices yet.
       </Text>
-      {device.agentTools ? (
-        <Button theme={theme} label="Turn off" disabled={busy} onPress={() => void set(false)} />
-      ) : (
-        <Button theme={theme} icon="Bot" label="Set up agent tools" onPress={() => setAsking(true)} />
-      )}
+      <Button theme={theme} icon="Bot" label="Set up agent tools" onPress={() => setAsking(true)} />
       <Modal
-        title="Let agents drive this device?"
+        title="Let agents drive devices?"
         open={asking}
-        onOpenChange={(open) => !open && !busy && setAsking(false)}
+        onOpenChange={(open) => !open && !settings.saving && setAsking(false)}
       >
         <Modal.Content>
-          <Text style={{ color: c.foreground, lineHeight: 20 }}>
-            Agents you start in this workspace get agent-device tools to read, tap and type on {device.name}.
-            The first time one does, {installs(device)} Nothing is downloaded.
-          </Text>
+          <Text style={{ color: c.foreground, lineHeight: 20 }}>{AGENT_TOOLS}</Text>
           <Text style={{ color: c.foregroundMuted, lineHeight: 20 }}>
-            Agents that were started without device tools need a restart to get them. With several devices
-            here, agents drive one at a time and switch between those you allowed. Turning this off takes the
-            device away from every agent; helpers already installed stay on it.
+            Agents that were started without device tools need a restart to get them. You can turn this off in
+            the Devices plugin's settings; helpers already installed stay on the devices.
           </Text>
+          {settings.saveError ? <Text style={{ color: c.statusDanger }}>{settings.saveError}</Text> : null}
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-            <Button theme={theme} label="Not now" disabled={busy} onPress={() => setAsking(false)} />
+            <Button
+              theme={theme}
+              label="Not now"
+              disabled={settings.saving}
+              onPress={() => setAsking(false)}
+            />
             <Button
               theme={theme}
               primary
               label="Allow agent tools"
-              disabled={busy}
-              onPress={() => void set(true)}
+              disabled={settings.saving}
+              onPress={() => void allow()}
             />
           </View>
         </Modal.Content>
@@ -220,8 +260,10 @@ function Toolbar({
 }) {
   const { power, assign } = useDeviceRpcs();
   const input = useRpc(inputRpc);
+  const shoot = useRpc(screenshotRpc);
   const { busy, perform } = useAction(hostId);
   const [typing, setTyping] = useState(false);
+  const [tuning, setTuning] = useState(false);
   const [more, setMore] = useState(false);
   const [text, setText] = useState("");
   const c = theme.colors;
@@ -275,6 +317,27 @@ function Toolbar({
             ) : null}
             <IconButton theme={theme} icon="RotateCw" label="Rotate" onPress={rotate} />
             <IconButton theme={theme} icon="Keyboard" label="Type text" onPress={() => setTyping(true)} />
+            <IconButton
+              theme={theme}
+              icon="Camera"
+              label="Copy a screenshot"
+              disabled={busy}
+              // started in the press: browsers only let a click write the clipboard
+              onPress={() =>
+                void perform(async () => ({
+                  message: await copyScreenshot(
+                    () => shoot({ deviceId: device.id }),
+                    `${device.name} ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.png`,
+                  ),
+                }))
+              }
+            />
+            <IconButton
+              theme={theme}
+              icon="SlidersHorizontal"
+              label="Device settings"
+              onPress={() => setTuning(true)}
+            />
           </>
         ) : null}
         <IconButton
@@ -309,6 +372,11 @@ function Toolbar({
           />
         </View>
       ) : null}
+      <Modal title={`Settings on ${device.name}`} open={tuning} onOpenChange={setTuning}>
+        <Modal.Content>
+          {tuning ? <DeviceSettings theme={theme} hostId={hostId} device={device} /> : null}
+        </Modal.Content>
+      </Modal>
       <Modal title="Type on the device" open={typing} onOpenChange={setTyping}>
         <Modal.Content>
           <Text style={{ color: c.foregroundMuted }}>Goes to whatever field has focus on the device.</Text>

@@ -41,3 +41,21 @@ export async function encode(deviceId: string, frame: Frame, maxWidth: number) {
 }
 
 export const forget = (deviceId: string) => cache.delete(deviceId);
+
+/** The frame as a PNG file, upright. */
+export async function savePng(frame: Omit<Frame, "seq">, file: string): Promise<void> {
+  const input = frame.raw ? sharp(frame.image, { raw: { ...frame.raw, channels: 3 } }) : sharp(frame.image);
+  await input
+    .rotate(frame.rotate ?? 0)
+    .png()
+    .toFile(file);
+}
+
+/** A small JPEG of an image file, for a chat's timeline. */
+export async function thumbnail(file: string) {
+  const { data, info } = await sharp(file)
+    .resize({ width: 360, withoutEnlargement: true })
+    .jpeg({ quality: 70 })
+    .toBuffer({ resolveWithObject: true });
+  return { jpeg: data.toString("base64"), width: info.width, height: info.height };
+}

@@ -1,12 +1,16 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
+import { screenshotAttachments } from "./shared/contracts";
 import { registerBridge } from "./client/bridge";
 import { isOn, useDevices } from "./client/data";
 import { headerButtons } from "./client/header";
 import { devicePanel } from "./client/location";
 import { DevicePanel } from "./client/panel";
+import { composerPills } from "./client/pills";
 import { DevicesScreen } from "./client/screen";
+import { AgentSettings } from "./client/settings";
+import { deviceTimeline } from "./client/timeline";
 
 function DevicesItem({ theme, host, currentScreen, openScreen }: PluginSidebarItemProps) {
   const on = useDevices(host.id).data?.devices.filter(isOn).length ?? 0;
@@ -51,11 +55,19 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addScreen({ id: "devices", title: "Devices", Component: DevicesScreen });
+  client.addSettingsScreen({ id: "agents", title: "Agent tools", icon: "Bot", Component: AgentSettings });
   client.addSidebarHeaderItem({ id: "devices", title: "Devices", Component: DevicesItem });
-  const stopButtons = headerButtons(client);
+  // the "+" menu's Device screen: a running device's screen as a file agents on the host can open
+  const removeAttachments = client.addAttachmentSource(screenshotAttachments);
+  const removeTimeline = deviceTimeline(client);
+  const removePills = composerPills(client);
+  const removeHeaders = headerButtons(client);
   const removeBridge = registerBridge(client);
   return () => {
-    stopButtons();
     removeBridge();
+    void removeAttachments();
+    removeTimeline();
+    removePills();
+    removeHeaders();
   };
 }

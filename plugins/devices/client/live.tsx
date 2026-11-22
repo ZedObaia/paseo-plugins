@@ -6,10 +6,27 @@ import {
   Image,
   type GestureResponderEvent,
   type LayoutChangeEvent,
+  type NativeSyntheticEvent,
+  Platform,
   Text,
+  TextInput,
+  type TextInputKeyPressEventData,
   View,
 } from "react-native";
-import { LONG_PRESS_MS, frameRpc, inputRpc } from "../shared/contracts";
+import { LONG_PRESS_MS, frameRpc, inputRpc, type Key } from "../shared/contracts";
+
+// keys the browser names, sent as keys rather than text (Escape stops typing instead)
+const NAMED_KEYS: Record<string, Key> = {
+  Backspace: "backspace",
+  Enter: "enter",
+  Tab: "tab",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+};
+// web and desktop: a click on the picture sends the keyboard to the device
+const TYPES_ON_SCREEN = Platform.OS === "web";
 
 type Shown = { uri: string; width: number; height: number };
 type Point = { x: number; y: number };
@@ -18,17 +35,21 @@ type Point = { x: number; y: number };
  * The device screen, fitted to the panel. Frames are polled (the next request goes out when the
  * previous one lands, so slow links just get fewer frames) and drawn double-buffered: a new frame
  * loads invisibly on top and replaces the old one only once decoded, so phones don't flicker.
- * A tap, a hold (long press) or a drag on the picture goes to the device. onShape reports whether
+ * A tap, a hold (long press) or a drag on the picture goes to the device; on web and desktop the
+ * click also sends the keyboard there until Escape or a click elsewhere. onShape reports whether
  * the picture is landscape, so a rotate button knows which way to turn.
  */
 export function LiveScreen({
   theme,
   deviceId,
   onShape,
+  onActivate,
 }: {
   theme: PluginTheme;
   deviceId: string;
   onShape?(landscape: boolean): void;
+  // a touch began on this screen (the grid selects it)
+  onActivate?(): void;
 }) {
   const frame = useRpc(frameRpc);
   const input = useRpc(inputRpc);
@@ -109,6 +130,43 @@ export function LiveScreen({
       setProblem(error instanceof Error ? error.message : String(error)),
     );
 
+  // Typing: text gathered for a moment goes as one input; inputs go one after another, in order.
+  const keyboard = useRef<TextInput>(null);
+  const [typing, setTyping] = useState(false);
+  const queue = useRef(Promise.resolve());
+  const pending = useRef("");
+  const gather = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const enqueue = (body: Parameters<typeof input>[0]["input"]) => {
+    queue.current = queue.current
+      .then(() => input({ deviceId, input: body }))
+      .then(
+        () => undefined,
+        (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
+      );
+  };
+  const flush = () => {
+    if (gather.current !== undefined) clearTimeout(gather.current);
+    const text = pending.current;
+    pending.current = "";
+    if (text) enqueue({ kind: "text", text });
+  };
+  const typeText = (text: string) => {
+    if (!text) return;
+    pending.current += text;
+    if (gather.current !== undefined) clearTimeout(gather.current);
+    gather.current = setTimeout(flush, 40);
+  };
+  function keyPress(e: NativeSyntheticEvent<TextInputKeyPressEventData>) {
+    const name = e.nativeEvent.key;
+    if (name === "Escape") return keyboard.current?.blur();
+    const key = NAMED_KEYS[name];
+    if (!key) return;
+    // Tab and Enter would move focus or submit
+    e.preventDefault();
+    flush();
+    enqueue({ kind: "key", key });
+  }
+
   function release(e: GestureResponderEvent) {
     const start = touch.current;
     const two = pair.current;
@@ -128,6 +186,7 @@ export function LiveScreen({
     }
     const end = point(e);
     const moved = distance(start, end);
+    if (TYPES_ON_SCREEN) keyboard.current?.focus();
     if (moved < 8)
       send({
         kind: "tap",
@@ -159,6 +218,8 @@ export function LiveScreen({
             borderRadius: 18,
             overflow: "hidden",
             backgroundColor: "black",
+            // the keyboard goes to the device
+            ...(typing ? { borderWidth: 2, borderColor: c.accent } : {}),
           }}
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
@@ -167,6 +228,7 @@ export function LiveScreen({
           onResponderGrant={(e) => {
             touch.current = { ...point(e), at: Date.now() };
             pair.current = null;
+            onActivate?.();
           }}
           onResponderMove={move}
           onResponderRelease={release}
@@ -202,6 +264,29 @@ export function LiveScreen({
       ) : problem ? null : (
         <ActivityIndicator color={c.foregroundMuted} />
       )}
+      {TYPES_ON_SCREEN ? (
+        <TextInput
+          ref={keyboard}
+          value=""
+          onChangeText={typeText}
+          onKeyPress={keyPress}
+          onFocus={() => setTyping(true)}
+          onBlur={() => {
+            flush();
+            setTyping(false);
+          }}
+          blurOnSubmit={false}
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="Typing on the device"
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+        />
+      ) : null}
+      {typing && !problem ? (
+        <Text style={{ color: c.foregroundMuted, fontSize: 12, position: "absolute", bottom: 0 }}>
+          Typing goes to the device · Esc to stop
+        </Text>
+      ) : null}
       {problem ? (
         <Text
           style={{

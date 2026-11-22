@@ -37,13 +37,10 @@ test("a workspace holds several devices; agents drive one; release frees one", a
       .filter((x) => x.workspaceId === "a")
       .map((x) => x.deviceId);
   assert.deepEqual(mine(), ["ios:2", "android:emulator-5554", "ios:3"]);
-  // only devices allowed for agents; the first allowed until agents choose
+  // none until the user turns agent tools on; then the first added until agents choose
   assert.equal(state.targetOf("a"), undefined);
-  await state.allowAgentTools("ios:3", true);
-  assert.equal(state.targetOf("a")?.deviceId, "ios:3");
-  // allowing one added earlier doesn't move agents off the one they drive
-  await state.allowAgentTools("android:emulator-5554", true);
-  assert.equal(state.targetOf("a")?.deviceId, "ios:3");
+  state.setAgentTools(true);
+  assert.equal(state.targetOf("a")?.deviceId, "ios:2");
   await state.setTarget("a", "android:emulator-5554");
   assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
   await state.setTarget("a", "ios:3");
@@ -53,14 +50,15 @@ test("a workspace holds several devices; agents drive one; release frees one", a
   assert.equal(await state.removeAssignment("a", "ios:3"), true);
   assert.deepEqual(mine(), ["ios:2", "android:emulator-5554"]);
   assert.equal(state.holderOf("ios:3"), undefined);
-  assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
+  assert.equal(state.targetOf("a")?.deviceId, "ios:2");
   // releasing forgets that agents chose it: back again, it doesn't take over from the current one
+  await state.setTarget("a", "android:emulator-5554");
   await state.addAssignment(A, "ios:3", false);
   assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
-  // so does withdrawing consent
-  await state.setTarget("a", "ios:3");
-  await state.allowAgentTools("ios:3", false);
-  await state.allowAgentTools("ios:3", true);
+  // turning agent tools off takes every device from agents; back on, they're where they were
+  state.setAgentTools(false);
+  assert.equal(state.targetOf("a"), undefined);
+  state.setAgentTools(true);
   assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
   // a device the workspace no longer holds can't become its target
   await state.removeAssignment("a", "ios:3");
@@ -68,6 +66,7 @@ test("a workspace holds several devices; agents drive one; release frees one", a
   await state.addAssignment(A, "ios:3", false);
   assert.equal(state.targetOf("a")?.deviceId, "android:emulator-5554");
   for (const id of mine()) await state.removeAssignment("a", id);
+  state.setAgentTools(false);
 });
 
 test("agents in a subfolder of a workspace find its device; the deepest workspace wins", async () => {
@@ -86,7 +85,6 @@ test("featured devices: on, held, owned, Android, and newest-iOS iPhones", () =>
     state: "shutdown",
     kind: "simulator",
     owned: false,
-    agentTools: false,
     error: null,
     ...extra,
   });
@@ -119,16 +117,17 @@ test("typing: US keyboard usages, shift around capitals and symbols", async () =
   assert.throws(() => keyEvents("é"), /can't type "é"/);
 });
 
-test("agent tools are off until allowed per device, and forgotten with a deleted copy", async () => {
-  assert.equal(state.agentToolsAllowed("ios:5"), false);
-  await state.allowAgentTools("ios:5", true);
-  assert.equal(state.agentToolsAllowed("ios:5"), true);
-  await state.allowAgentTools("ios:5", false);
-  assert.equal(state.agentToolsAllowed("ios:5"), false);
+test("a deleted copy leaves its workspace and the agents' choice", async () => {
+  state.setAgentTools(true);
+  await state.addAssignment(A, "ios:6", false);
   await state.setOwned("android:emulator-5556", true);
-  await state.allowAgentTools("android:emulator-5556", true);
+  await state.addAssignment(A, "android:emulator-5556", false);
+  await state.setTarget("a", "android:emulator-5556");
   await state.setOwned("android:emulator-5556", false);
-  assert.equal(state.agentToolsAllowed("android:emulator-5556"), false);
+  assert.equal(state.holderOf("android:emulator-5556"), undefined);
+  assert.equal(state.targetOf("a")?.deviceId, "ios:6");
+  await state.removeAssignment("a", "ios:6");
+  state.setAgentTools(false);
 });
 
 test("every RPC contract is valid (defineRpc throws on load otherwise)", async () => {
@@ -193,6 +192,81 @@ test("the picker answers an agent's MCP messages over stdio, in its own workspac
   assert.deepEqual(used, ["b:ios:1"]);
 });
 
+test("an agent's shell command: agent-device's arguments, a plain summary and its screenshot", async () => {
+  const { agentDeviceArgs, describe, screenshotPath, shellWords } = await import("../shared/timeline");
+  assert.deepEqual(shellWords(`a 'b c' "d \\"e\\"" f\\ g && h|i`), [
+    "a",
+    "b c",
+    'd "e"',
+    "f g",
+    "&&",
+    "h",
+    "|",
+    "i",
+  ]);
+  const cmd = "/Users/me/.paseo/plugin-data/devices/bin/wks_1/agent-device";
+  assert.deepEqual(agentDeviceArgs(`cd app && ${cmd} press @e12 --settle; echo done`), [
+    "press",
+    "@e12",
+    "--settle",
+  ]);
+  assert.deepEqual(agentDeviceArgs(`agent-device fill 'label="Email"' "me@example.com"`), [
+    "fill",
+    'label="Email"',
+    "me@example.com",
+  ]);
+  assert.equal(agentDeviceArgs("npm test"), null);
+  assert.equal(describe(["press", "@e12", "--settle"]), "Tapped @e12");
+  assert.equal(describe(["open", "com.acme.shop", "--foreground"]), "Opened com.acme.shop");
+  assert.equal(describe(["--help"]), "Read agent-device's help");
+  assert.equal(describe(["frobnicate", "x"]), "agent-device frobnicate x");
+  assert.equal(screenshotPath(["screenshot", "/tmp/a.png"], "", null), "/tmp/a.png");
+  assert.equal(screenshotPath(["screenshot", "./shots/a.png"], "", "/w/app"), "/w/app/shots/a.png");
+  assert.equal(screenshotPath(["screenshot"], "Saved screenshot: /tmp/s/1.png\n", null), "/tmp/s/1.png");
+  assert.equal(screenshotPath(["snapshot"], "/tmp/x.png", null), null);
+});
+
+test("device settings: text size steps per platform, and typed locations", async () => {
+  const { TEXT_SIZES, parseLocation, textSizeIndex } = await import("../shared/controls");
+  assert.equal(TEXT_SIZES[textSizeIndex("ios", "large\n")!]!.label, "Default");
+  assert.equal(textSizeIndex("ios", "accessibility-large"), null);
+  assert.equal(TEXT_SIZES[textSizeIndex("android", "1.3")!]!.label, "Larger");
+  assert.equal(TEXT_SIZES[textSizeIndex("android", "1.12")!]!.label, "Large");
+  assert.equal(textSizeIndex("android", "null"), null);
+  assert.deepEqual(parseLocation(" 52.52, 13.405 "), { lat: 52.52, lon: 13.405 });
+  assert.deepEqual(parseLocation("-33.8 151.2"), { lat: -33.8, lon: 151.2 });
+  assert.equal(parseLocation("91, 0"), null);
+  assert.equal(parseLocation("Berlin"), null);
+});
+
+test("a simulator's apps: user apps only, test runners and option-like ids left out", async () => {
+  const { userApps } = await import("../shared/controls");
+  const { controlRpc } = await import("../shared/contracts");
+  assert.deepEqual(
+    userApps({
+      "com.example.shop": { ApplicationType: "User", CFBundleDisplayName: "Shop" },
+      "com.apple.Preferences": { ApplicationType: "System", CFBundleDisplayName: "Settings" },
+      ".xctrunner": { ApplicationType: "User", CFBundleName: "ShopUITests-Runner" },
+      "com.callstack.agentdevice.runner.uitests.xctrunner": { ApplicationType: "User" },
+      "-rf": { ApplicationType: "User" },
+      "com.example.admin": { ApplicationType: "User", CFBundleName: "Admin" },
+    }),
+    [
+      { id: "com.example.admin", name: "Admin" },
+      { id: "com.example.shop", name: "Shop" },
+    ],
+  );
+  const permission = (app: string) =>
+    controlRpc.input.safeParse({
+      deviceId: "ios:1",
+      action: { kind: "permission", app, permission: "photos", grant: true },
+    }).success;
+  assert.equal(permission("com.example.shop"), true);
+  assert.equal(permission(".odd.id"), true);
+  assert.equal(permission("--reset"), false);
+  assert.equal(permission("a b"), false);
+});
+
 test("the sidebar's running devices: booted ones, by workspace", () => {
   const device = (id: string, name: string, state: Device["state"]): Device => ({
     id,
@@ -202,7 +276,6 @@ test("the sidebar's running devices: booted ones, by workspace", () => {
     state,
     kind: "simulator",
     owned: false,
-    agentTools: false,
     error: null,
   });
   const at = (workspaceId: string, deviceId: string) => ({

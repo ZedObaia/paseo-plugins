@@ -1,5 +1,6 @@
-import { defineRpc } from "@getpaseo/plugin";
+import { defineAttachmentSource, defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { APP_ID, PERMISSION_IDS, TEXT_SIZES } from "./controls";
 
 const platformSchema = z.enum(["ios", "android"]);
 
@@ -22,8 +23,6 @@ const device = z.object({
   kind: z.enum(["simulator", "emulator", "avd", "physical"]),
   // created by this plugin for a workspace: offered for deletion
   owned: z.boolean(),
-  // agents may drive it: allowed by the user, since agent-device installs helpers on it first
-  agentTools: z.boolean(),
   // why the last boot failed, until the next attempt
   error: z.string().nullable(),
 });
@@ -76,13 +75,15 @@ export const createRpc = defineRpc({
 });
 
 /**
- * Lets agents drive a device, or stops that. The first time an agent uses a device, agent-device
- * installs its helpers on it, so the user allows it explicitly.
+ * Whether agents get agent-device tools for their workspace's devices. Off until the user turns it
+ * on, after being told what it installs: the first time an agent drives a device, agent-device
+ * installs its helpers there.
  */
-export const agentToolsRpc = defineRpc({
-  name: "devices.agent-tools",
-  input: z.object({ deviceId, allow: z.boolean() }),
-  output: z.object({ message: z.string() }),
+export const agentSettings = defineSettings({
+  id: "agents",
+  scope: "host",
+  version: 1,
+  schema: z.object({ agentTools: z.boolean().default(false) }),
 });
 
 export const powerRpc = defineRpc({
@@ -114,6 +115,9 @@ export const frameRpc = defineRpc({
 
 const point = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) });
 
+export const KEYS = ["backspace", "enter", "tab", "escape", "left", "right", "up", "down"] as const;
+export type Key = (typeof KEYS)[number];
+
 export const inputRpc = defineRpc({
   name: "devices.input",
   input: z.object({
@@ -132,7 +136,119 @@ export const inputRpc = defineRpc({
         button: z.enum(["home", "back", "lock", "volumeUp", "volumeDown", "appSwitch"]),
       }),
       z.object({ kind: z.literal("rotate"), orientation: z.enum(["portrait", "landscape"]) }),
+      // keys typed on the live screen that aren't text
+      z.object({ kind: z.literal("key"), key: z.enum(KEYS) }),
     ]),
   }),
   output: z.object({ ok: z.literal(true) }),
+});
+
+/** An app installed by the user, for permissions and push notifications. */
+const appId = z.string().regex(APP_ID);
+const appearance = z.enum(["light", "dark"]);
+const location = z.object({ lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
+
+/** A booted device's settings, as it reports them (null: it can't say, or the platform has none). */
+export const controlsRpc = defineRpc({
+  name: "devices.controls",
+  input: z.object({ deviceId }),
+  output: z.object({
+    appearance: appearance.nullable(),
+    // a step of TEXT_SIZES
+    textSize: z.number().int().nullable(),
+    // iOS: Increase Contrast
+    contrast: z.boolean().nullable(),
+    // Android: airplane mode
+    airplane: z.boolean().nullable(),
+    // the last location set here; devices don't report a simulated one
+    location: location.nullable(),
+    apps: z.array(z.object({ id: appId, name: z.string() })),
+  }),
+});
+
+/** Changes one setting on a booted device, the way a tester would in its Settings app. */
+export const controlRpc = defineRpc({
+  name: "devices.control",
+  input: z.object({
+    deviceId,
+    action: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("appearance"), value: appearance }),
+      z.object({
+        kind: z.literal("textSize"),
+        value: z
+          .number()
+          .int()
+          .min(0)
+          .max(TEXT_SIZES.length - 1),
+      }),
+      z.object({ kind: z.literal("contrast"), value: z.boolean() }),
+      z.object({ kind: z.literal("airplane"), value: z.boolean() }),
+      // null: stop simulating one (iOS)
+      z.object({ kind: z.literal("location"), value: location.nullable() }),
+      // a web page or a deep link into an app
+      z.object({
+        kind: z.literal("openUrl"),
+        url: z
+          .string()
+          .max(2000)
+          .regex(/^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$/, "A URL like https://example.com or myapp://path"),
+      }),
+      z.object({
+        kind: z.literal("permission"),
+        app: appId,
+        permission: z.enum(PERMISSION_IDS),
+        grant: z.boolean(),
+      }),
+      // iOS simulators only
+      z.object({
+        kind: z.literal("push"),
+        app: appId,
+        title: z.string().max(200),
+        body: z.string().min(1).max(2000),
+      }),
+    ]),
+  }),
+  output: z.object({ message: z.string() }),
+});
+
+/** The screens of the host's running devices, saved as PNG files, for the "+" menu's picker. */
+export const screenshotSearchRpc = defineRpc({
+  name: "devices.screenshots",
+  input: z.object({ query: z.string() }),
+  output: z.object({
+    items: z.array(
+      z.object({
+        id: z.string(),
+        identifier: z.string(),
+        title: z.string(),
+        subtitle: z.string().optional(),
+        url: z.url(),
+        text: z.string(),
+        resourceType: z.string(),
+      }),
+    ),
+  }),
+});
+
+export const screenshotAttachments = defineAttachmentSource({
+  id: "screens",
+  title: "Device screen",
+  icon: "Smartphone",
+  pickerTitle: "Attach a device's screen",
+  searchPlaceholder: "Device name",
+  search: screenshotSearchRpc,
+});
+
+/** A small JPEG of a screenshot an agent saved with agent-device, for its chat's timeline. */
+export const thumbnailRpc = defineRpc({
+  name: "devices.thumbnail",
+  input: z.object({ path: z.string().regex(/^\/.+\.(png|jpe?g)$/i) }),
+  output: z.object({ jpeg: z.string(), width: z.number(), height: z.number() }),
+});
+
+/** A device's screen now, as a PNG for the app to copy; kept on the host for a day too. */
+export const screenshotRpc = defineRpc({
+  name: "devices.screenshot",
+  input: z.object({ deviceId }),
+  output: z.object({ path: z.string(), png: z.string() }),
 });

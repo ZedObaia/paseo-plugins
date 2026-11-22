@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type * as GrpcType from "@grpc/grpc-js";
 import type * as ProtoLoaderType from "@grpc/proto-loader";
-import { LONG_PRESS_MS, deviceId, type Device } from "../shared/contracts";
+import { LONG_PRESS_MS, deviceId, type Device, type Key } from "../shared/contracts";
 import { run, runBuffer, waitFor } from "./exec";
 import type { Frame } from "./frames";
 import { pluginRequire } from "./paths";
@@ -19,7 +19,7 @@ const SDK = [
 const ADB =
   SDK && existsSync(path.join(SDK, "platform-tools/adb")) ? path.join(SDK, "platform-tools/adb") : "adb";
 const EMULATOR = SDK ? path.join(SDK, "emulator/emulator") : "emulator";
-const adb = (args: string[], timeoutMs?: number) => run(ADB, args, timeoutMs);
+export const adb = (args: string[], timeoutMs?: number) => run(ADB, args, timeoutMs);
 
 export async function androidAvailability(): Promise<{ available: boolean; reason: string }> {
   try {
@@ -76,14 +76,14 @@ function runningEmulators(): Map<number, Running> {
 /** A "New copy": an extra read-only instance of an AVD that this plugin started for a workspace. */
 const isCopy = (serial: string) => isOwned(`android:${serial}`);
 
-export async function listAndroid(): Promise<Omit<Device, "owned" | "agentTools" | "error">[]> {
+export async function listAndroid(): Promise<Omit<Device, "owned" | "error">[]> {
   const [devicesText, avdText] = await Promise.all([
     adb(["devices", "-l"]),
     existsSync(EMULATOR) ? run(EMULATOR, ["-list-avds"]).catch(() => "") : Promise.resolve(""),
   ]);
   const running = runningEmulators();
   const primary = new Map<string, string>(); // AVD name -> serial of its normal instance
-  const result: Omit<Device, "owned" | "agentTools" | "error">[] = [];
+  const result: Omit<Device, "owned" | "error">[] = [];
   for (const line of devicesText.split("\n").slice(1)) {
     const [serial, status] = line.trim().split(/\s+/);
     // a serial the contract can't carry (`adb connect [fe80::1]:5555`) would fail the whole list
@@ -356,7 +356,9 @@ async function size(serial: string) {
   return { width: Number(match?.[1] ?? 1080), height: Number(match?.[2] ?? 1920) };
 }
 
-const shell = (serial: string, command: string) => adb(["-s", serial, "shell", command]);
+/** A command line for the device's shell: quote what comes from users with `shellQuote`. */
+export const shell = (serial: string, command: string) => adb(["-s", serial, "shell", command]);
+export const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
 async function px(serial: string, p: { x: number; y: number }) {
   const s = await size(serial);
@@ -390,6 +392,21 @@ const KEYS: Record<string, number> = {
   volumeDown: 25,
   appSwitch: 187,
 };
+
+const KEYCODES: Record<Key, number> = {
+  up: 19,
+  down: 20,
+  left: 21,
+  right: 22,
+  tab: 61,
+  enter: 66,
+  backspace: 67,
+  escape: 111,
+};
+
+export async function androidKey(serial: string, key: Key) {
+  await shell(serial, `input keyevent ${KEYCODES[key]}`);
+}
 
 export async function androidButton(serial: string, button: string) {
   await shell(serial, `input keyevent ${KEYS[button]}`);
