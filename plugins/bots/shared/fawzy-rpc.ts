@@ -15,6 +15,13 @@ export const sidebarBotsRpc = defineRpc({
   output: z.object({ bots: z.array(z.object({ id: z.string(), name: z.string(), avatar: BotSchema.shape.avatar })) }),
 });
 
+/** Starts a chat with a bot from its page; Paseo titles it from the message. */
+export const chatStartRpc = defineRpc({
+  name: "bots.chats.start",
+  input: z.object({ botId: BotId, prompt: z.string().trim().min(1) }),
+  output: z.object({ chatId: z.string(), workspaceId: z.string().nullable() }),
+});
+
 /** A bot's pending suggested tasks (suggest_task), newest first. */
 export const suggestionsListRpc = defineRpc({
   name: "bots.suggestions.list",

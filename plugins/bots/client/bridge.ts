@@ -13,9 +13,10 @@ export interface FawzyBridge {
   readonly version: 1;
   /** Non-archived bots, in settings order. */
   listBots(): Promise<readonly { id: string; name: string; avatar: BotAvatar }[]>;
-  /** The bot page (bot-home). */
+  /** The bot's home (bot-home). */
   openBot(botId: string): void;
   openChat(botId: string, chatId: string): void;
+  /** The bot's home, ready to type a new chat. */
   newChat(botId: string): void;
   /** Needs no Fawzy context, so it renders inside another plugin's tree. */
   Avatar: ComponentType<{ avatar: BotAvatar; size: number; dark?: boolean }>;
@@ -41,7 +42,8 @@ export function registerBridge(client: Pick<PluginClientContext, "rpc" | "openSc
     listBots,
     openBot: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title } })),
     openChat: (botId, chatId) => open(botId, (title) => chatScreen({ botId, chatId }, title)),
-    newChat: (botId) => open(botId, (title) => chatScreen({ botId, chatId: null }, title)),
+    // The bot's home with its message box focused; the chat opens in Paseo once you send.
+    newChat: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title, compose: String(Date.now()) } })),
     Avatar,
   };
   const registry = globalThis as Registry;

@@ -50,7 +50,7 @@ import { beginDraftCreation } from "./chat/composer/draft-creation";
 
 type Colors = PluginTheme["colors"];
 
-const SETUP_PROMPT =
+export const SETUP_PROMPT =
   "Let's set you up. Interview me one short question at a time about what I want from you, how I like to work, and what you should never do. " +
   "Then propose standing instructions for yourself and a starting MEMORY.md. Write the memory file once I confirm, and give me the instructions to paste into your Soul settings.";
 

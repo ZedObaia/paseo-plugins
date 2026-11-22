@@ -1,4 +1,4 @@
-import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginOpenScreenInput, PluginScreenProps } from "@getpaseo/plugin/client";
 import { useEffect, type ReactNode } from "react";
 import { View } from "react-native";
 import { z } from "zod";
@@ -16,6 +16,8 @@ import { requestIntent } from "./client/intent";
 import { RoutinesScreen } from "./client/RoutinesScreen";
 import { registerBridge } from "./client/bridge";
 import { BotHome } from "./client/home/BotHome";
+import { BotSettingsPage } from "./client/home/BotSettingsPage";
+import { BotTab } from "./client/home/BotTab";
 import { PaseoBotsSidebar } from "./client/PaseoSidebar";
 import { BackBar } from "./client/library/parts";
 import { useTypeScale } from "./client/typography";
@@ -29,9 +31,9 @@ import { LEARN_COMMAND, learnPrompt } from "./shared/skills";
 /** The plugin's screen, under the id of the sidebar item it replaced so saved links still open it. */
 const BOTS_SCREEN = "bots";
 
-function BotsPage({ props, title, onBack, children }: { props: PluginScreenProps; title: string; onBack(): void; children: ReactNode }) {
+function BotsPage({ props, title, backLabel = "Back to Bots", onBack, children }: { props: PluginScreenProps; title: string; backLabel?: string; onBack(): void; children: ReactNode }) {
   useTypeScale();
-  return <View style={{ flex: 1, backgroundColor: props.theme.colors.surface0 }}><BackBar colors={props.theme.colors} title={title} backLabel="Back to Bots" onBack={onBack} />{children}</View>;
+  return <View style={{ flex: 1, backgroundColor: props.theme.colors.surface0 }}><BackBar colors={props.theme.colors} title={title} backLabel={backLabel} onBack={onBack} />{children}</View>;
 }
 
 function registerBotScreen(client: PluginClientContext, definition: typeof BOT_SCREENS[number]) {
@@ -51,9 +53,30 @@ export default function contribute(client: PluginClientContext) {
   // Hands the daemon side its Paseo API so bot routines can run.
   void client.rpc(helloRpc, {}).catch(() => {});
   const removeTooltips = installTooltips();
+  // A bot's settings are its own page now; the Bots screen keeps the rest.
   for (const screen of BOT_SCREENS) {
-    registerBotScreen(client, screen);
+    if (screen.id !== "bot-settings" && screen.id !== "bot-section") registerBotScreen(client, screen);
   }
+  const openScreen = (input: PluginOpenScreenInput) => client.openScreen(input);
+  const openPanel = (workspaceId: string) => {
+    const open = () => client.openPanel("bot", { workspaceId, location: "explorer" });
+    try {
+      open();
+    } catch {
+      // ponytail: a bot's first chat makes its workspace, which reaches this client a moment later; one retry.
+      setTimeout(() => {
+        try {
+          open();
+        } catch (error) {
+          console.warn("fawzy: couldn't open the bot panel", error);
+        }
+      }, 1000);
+    }
+  };
+  for (const id of ["bot-settings", "bot-section"]) {
+    client.addScreen({ id, title: (params) => params.title || "Bot settings", Component: (props) => <BotSettingsPage {...props} openScreen={openScreen} openPanel={openPanel} /> });
+  }
+  client.addWorkspacePanel({ id: "bot", title: "Bot", icon: "Bot", locations: ["explorer"], Component: (props) => <BotTab {...props} openScreen={openScreen} /> });
   client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: PaseoBotsSidebar });
   const backToBots = () => client.openScreen({ screenId: BOTS_SCREEN });
   // Existing open tabs/bookmarks from the removed settings page return to Bots.
@@ -62,8 +85,13 @@ export default function contribute(client: PluginClientContext) {
     return null;
   }
   client.addScreen({ id: "bot-preferences", title: "Bots", Component: PreviousSettingsRoute });
-  client.addScreen({ id: "bot-routines", title: "Bots", Component: (props) => <BotsPage props={props} title="Routines" onBack={backToBots}><RoutinesScreen {...props} openScreen={(input) => client.openScreen(input)} /></BotsPage> });
-  client.addScreen({ id: "bot-home", title: (params) => params.title || "Bot", Component: (props) => <BotHome {...props} openScreen={(input) => client.openScreen(input)} /> });
+  // Opened from a bot's home, Routines goes back there.
+  client.addScreen({ id: "bot-routines", title: "Routines", Component: (props) => {
+    const { botId, botName } = props.params;
+    const back = botId ? () => openScreen({ screenId: "bot-home", params: { botId, title: botName || "Bot" } }) : backToBots;
+    return <BotsPage props={props} title="Routines" backLabel={botId ? `Back to ${botName || "the bot"}` : "Back to Bots"} onBack={back}><RoutinesScreen {...props} openScreen={openScreen} /></BotsPage>;
+  } });
+  client.addScreen({ id: "bot-home", title: (params) => params.title || "Bot", Component: (props) => <BotHome {...props} openScreen={openScreen} openPanel={openPanel} /> });
   const removeBridge = registerBridge(client);
   client.addCommandCenterItem({
     id: "open-bots",

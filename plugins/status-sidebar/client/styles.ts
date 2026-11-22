@@ -234,6 +234,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       alignItems: "flex-start",
       gap: 10,
     },
+    botChevron: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
     botLeading: { position: "relative", width: 20, height: 20, flexShrink: 0 },
     botName: { color: c.foreground, fontSize: 14, lineHeight: 20, opacity: 0.86, flex: 1, minWidth: 0 },
     bell: {

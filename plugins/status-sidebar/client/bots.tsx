@@ -94,12 +94,12 @@ export function BotAvatar({ bot, size, fallbackName }: { bot: Bot; size: number;
 }
 
 function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
-  const { s, p, touch } = useUi();
+  const { s, c, p, touch } = useUi();
   const { view, prefs, toggleCollapsed } = useSidebar();
   const [hovered, setHovered] = useState(false);
   const [more, setMore] = useState(false);
   // Fawzy opens its screens itself; close the phone's sidebar drawer as Paseo's own links do, or the
-  // screen opens behind it.
+  // screen opens behind it. New chat opens the bot's home ready to type.
   const openBot = () => {
     bot.bridge?.openBot(bot.id);
     view.dismiss();
@@ -112,6 +112,8 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
   const home = useWorkspace(latest?.workspace ?? "");
   const name = bot.name ?? home?.name ?? "Bot";
   const collapsed = prefs.collapsed.includes(`bot:${bot.id}`);
+  const toggle = () => toggleCollapsed(`bot:${bot.id}`);
+  const toggleLabel = collapsed ? `Show ${name}'s chats` : `Hide ${name}'s chats`;
   // The bot's own line: its busiest chat's progress.
   const busy = useAgents({
     where: (agent) => agent.labels[BOT_LABEL] === bot.id && agent.status === "running",
@@ -132,30 +134,52 @@ function BotBlock({ bot, refs }: { bot: Bot; refs: readonly AgentRef[] }) {
   return (
     <View style={s.blockExpanded}>
       <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+        {/* The row opens the bot's home; its avatar turns into the collapse chevron on hover, like a project's icon. */}
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ expanded: !collapsed }}
           accessibilityLabel={`${name}, ${refs.length} ${refs.length === 1 ? "chat" : "chats"}`}
-          onPress={() => toggleCollapsed(`bot:${bot.id}`)}
+          onPress={bot.bridge ? openBot : toggle}
           style={({ pressed }) => [s.botRow, hovered && s.hover, pressed && s.pressed]}
         >
           <View style={s.botLeading}>
-            <BotAvatar bot={bot} size={20} fallbackName={name} />
-            {badge ? (
-              <View style={[s.badge, { backgroundColor: p.sidebar }]}>
-                <View style={[s.dot, { backgroundColor: tones[badge] }]} />
-              </View>
-            ) : null}
+            {hovered && !touch ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !collapsed }}
+                accessibilityLabel={toggleLabel}
+                onPress={toggle}
+                style={s.botChevron}
+              >
+                <Icon name={collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
+              </Pressable>
+            ) : (
+              <>
+                <BotAvatar bot={bot} size={20} fallbackName={name} />
+                {badge ? (
+                  <View style={[s.badge, { backgroundColor: p.sidebar }]}>
+                    <View style={[s.dot, { backgroundColor: tones[badge] }]} />
+                  </View>
+                ) : null}
+              </>
+            )}
           </View>
           <View style={s.column}>
             <View style={s.titleRow}>
               <Text numberOfLines={1} style={[s.botName, hovered && s.titleHovered]}>
                 {name}
               </Text>
-              {actions && bot.bridge ? (
+              {actions ? (
                 <View style={s.projectActions}>
-                  <IconButton icon="House" label={`Open ${name}`} onPress={openBot} />
-                  <IconButton icon="Plus" label={`New chat with ${name}`} onPress={newChat} />
+                  {touch ? (
+                    <IconButton
+                      icon={collapsed ? "ChevronRight" : "ChevronDown"}
+                      label={toggleLabel}
+                      onPress={toggle}
+                    />
+                  ) : null}
+                  {bot.bridge ? (
+                    <IconButton icon="Plus" label={`New chat with ${name}`} onPress={newChat} />
+                  ) : null}
                 </View>
               ) : latest ? (
                 <Text style={s.timestamp}>{compactTimeAgo(latest.lastActivityAt, Date.now())}</Text>

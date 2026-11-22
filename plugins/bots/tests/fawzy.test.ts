@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBridge, type FawzyBridge } from "../client/bridge";
-import { headerStatus, splitChats } from "../client/home/model";
+import { headerStatus, recentActivity, splitChats } from "../client/home/model";
 import { newRoutineEntries, presetRoutine, ROUTINE_PRESETS } from "../client/home/presets";
 import { BotSchema, type BotSettingsValues } from "../shared/bot";
 import { sidebarBotsRpc } from "../shared/fawzy-rpc";
@@ -37,7 +37,7 @@ describe("bridge", () => {
     expect(openScreen.mock.calls.map(([input]) => input)).toMatchObject([
       { screenId: "bot-home", params: { botId: "bot-a", title: "Scout" } },
       { screenId: "bot-chat", params: { botId: "bot-a", chatId: "chat-1", title: "Scout" } },
-      { screenId: "bot-chat", params: { botId: "bot-a", title: "Scout", draftId: expect.any(String) } },
+      { screenId: "bot-home", params: { botId: "bot-a", title: "Scout", compose: expect.any(String) } },
     ]);
 
     // An unknown bot is looked up before its screen opens.
@@ -160,6 +160,25 @@ describe("bot page", () => {
       chat("c", "1", { archivedAt: "x", metadata: status("Archived", "2026-11-03T00:00:00Z") }),
       chat("d", "1", { metadata: { [BOT_STATUS_METADATA]: { text: 5 } } }),
     ])).toEqual({ text: "Newer", progress: 0.5 });
+  });
+
+  it("lists recent activity from chats and memory changes, newest first", () => {
+    const bot = { name: "Scout", routines: [{ id: "r-1", name: "Look around" }] };
+    const journal = (id: string, at: string, chatId: string | null) => ({
+      id, at, file: "MEMORY.md", actor: "bot" as const, via: "chat" as const, chat: chatId ? { id: chatId, title: "Inbox" } : null,
+      kind: "edited" as const, diff: "", added: 2, removed: 0, canUndo: true,
+    });
+    const items = recentActivity(bot, [
+      chat("plain", "2026-11-01T00:00:00Z", { title: "[Hub] Reply to PR" }),
+      chat("routine", "2026-11-03T00:00:00Z", { labels: { "paseo-bots.routine": "r-1" }, status: "running" }),
+      chat("closed", "2026-11-04T00:00:00Z", { archivedAt: "2026-11-04" }),
+    ], [journal("j-1", "2026-11-02T00:00:00Z", "plain"), journal("j-2", "2026-11-05T00:00:00Z", null)], 4);
+    expect(items.map(({ id, text, hint, chatId }) => ({ id, text, hint, chatId }))).toEqual([
+      { id: "memory:j-2", text: "Scout added 2 lines to MEMORY.md", hint: "in the bot's settings", chatId: null },
+      { id: "chat:closed", text: "New chat", hint: "Closed", chatId: "closed" },
+      { id: "chat:routine", text: "Ran Look around", hint: "Working", chatId: "routine" },
+      { id: "memory:j-1", text: "Scout added 2 lines to MEMORY.md", hint: 'from chat "Inbox"', chatId: "plain" },
+    ]);
   });
 
   it("offers valid preset routines once per bot, then the custom form", () => {
