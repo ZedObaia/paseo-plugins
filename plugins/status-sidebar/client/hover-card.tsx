@@ -3,8 +3,7 @@
 // its CI checks. Branch and path copy on press; the PR and its checks open in the browser.
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import * as ReactNative from "react-native";
-import { Pressable, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
+import { Platform, Pressable, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
 import { getPaseoClient, openExternalUrl, useHosts, type WorkspaceRef } from "@getpaseo/plugin/client";
 import { Icon, copyText } from "@getpaseo/plugin/client/ui";
 import type { PluginWorkspaceSnapshot } from "@getpaseo/plugin";
@@ -49,8 +48,13 @@ let closeOpen: (() => void) | null = null;
 interface Root {
   render(node: ReactNode): void;
 }
-const renderRoot = (ReactNative as unknown as { render?: (node: ReactNode, container: unknown) => Root })
-  .render;
+// Read on web only, and never through `import * as`: Paseo's bundler copies every export of a
+// namespace import up front, and on iOS that touches native modules the app doesn't ship, which
+// crashed the app at launch.
+const renderRoot =
+  Platform.OS === "web"
+    ? (require("react-native") as { render?: (node: ReactNode, container: unknown) => Root }).render
+    : undefined;
 // The client tsconfig has no DOM library; this is the one place the page is touched.
 const page = (
   globalThis as {
