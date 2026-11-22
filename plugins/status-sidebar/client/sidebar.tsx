@@ -39,6 +39,8 @@ import {
   compareProjectNames,
   compareStatusRows,
   compareProjectRows,
+  isMainCheckout,
+  mainCheckoutGroup,
   missingMainCheckouts,
   labelKey,
   placementId,
@@ -236,6 +238,16 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   const filterEmpty = projects.length > 0 && shown.length === 0;
   const status = prefs.grouping === "status";
   const devices = useRunningDevices();
+  // The oldest workspace in each project's main checkout folder, per host; the rest there are ordinary.
+  const mainGroups = useWorkspaces({
+    where: isMainCheckout,
+    orderBy: ["createdAt", "asc"],
+    groupBy: mainCheckoutGroup,
+  });
+  const mainCheckouts = useMemo(
+    () => new Set(mainGroups.flatMap((group) => (group.items[0] ? [group.items[0].key] : []))),
+    [mainGroups],
+  );
   const sidebar: Sidebar = {
     view,
     prefs,
@@ -245,6 +257,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
     visible,
     hostBadges,
     devices,
+    mainCheckouts,
     toggleCollapsed: (key) =>
       update((current) => ({ ...current, collapsed: toggle(current.collapsed, key) })),
   };
@@ -338,11 +351,11 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
 
 function ProjectBlock({ group }: { group: Group<ProjectRef> }) {
   const { s } = useUi();
-  const { view, prefs, scope, projectOf, visible, toggleCollapsed } = useSidebar();
+  const { view, prefs, scope, projectOf, visible, mainCheckouts, toggleCollapsed } = useSidebar();
   const name = group.title ?? group.key;
   const where = (workspace: PluginWorkspaceSnapshot) =>
     projectOf(workspace) === group.key && workspace.pinnedAt === null && visible(workspace);
-  const refs = useWorkspaces({ hosts: scope, where, orderBy: compareProjectRows(prefs.sort) });
+  const refs = useWorkspaces({ hosts: scope, where, orderBy: compareProjectRows(prefs.sort, mainCheckouts) });
   const byStatus = useWorkspaces({ hosts: scope, where, groupBy: (workspace) => workspace.indicator });
   const active = new Set(
     byStatus.filter((entry) => entry.key !== "done").flatMap((entry) => entry.items.map((ref) => ref.key)),

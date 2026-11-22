@@ -28,7 +28,8 @@ copies the default view's layout, sizes, colors, icons, hover and selected state
   archive and the workspace menu (copy path or branch, rename, pin, archive).
 - Every git project keeps a workspace for its main checkout, first in the project with a **main**
   label whatever branch it's on, as in Orca. The sidebar creates it on each host where it's missing
-  (again after it's archived) and offers no Archive for it.
+  (again after it's archived) and offers no Archive for it. Paseo allows more than one workspace in
+  that folder; the oldest is the main one, and the others are ordinary rows.
 - The hover card beside a workspace row on desktop and web: its pull request, diff, host, branch
   and path (both copy on press), and its CI checks, which open on GitHub.
 - While an agent works in a workspace, its hover card lists the agent's tasks: done ones checked,

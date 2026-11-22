@@ -147,7 +147,10 @@ interface SortFacts {
 /** projects/workspace-structure.ts: newest first by the chosen time, then by key. */
 const trimSlash = (path: string) => path.replace(/\/+$/, "");
 
-/** A git project's main checkout: the project's own folder, not a linked worktree. Orca labels it "main". */
+/**
+ * A workspace in a git project's main checkout: the project's own folder, not a linked worktree.
+ * Paseo allows several there; the sidebar labels the oldest one per host "main" (mainCheckoutGroup).
+ */
 export function isMainCheckout(workspace: {
   readonly kind: string;
   readonly directory: string;
@@ -188,13 +191,15 @@ export function missingMainCheckouts(
     .map((project) => project.projectRootPath);
 }
 
+/** Workspaces in the same main checkout folder share this; the oldest of each is the one labelled main. */
+export const mainCheckoutGroup = (workspace: { readonly hostId: string; readonly projectRootPath: string }) =>
+  `${workspace.hostId}\u0000${trimSlash(workspace.projectRootPath)}`;
+
 /** A project's rows: its main checkout first, then the chosen order. */
-export function compareProjectRows(sort: Sort) {
+export function compareProjectRows(sort: Sort, mains: ReadonlySet<string>) {
   const rest = compareWorkspaces(sort);
-  return (
-    a: SortFacts & Parameters<typeof isMainCheckout>[0],
-    b: SortFacts & Parameters<typeof isMainCheckout>[0],
-  ) => Number(isMainCheckout(b)) - Number(isMainCheckout(a)) || rest(a, b);
+  return (a: SortFacts, b: SortFacts) =>
+    Number(mains.has(b.ref.key)) - Number(mains.has(a.ref.key)) || rest(a, b);
 }
 
 export function compareWorkspaces(sort: Sort) {

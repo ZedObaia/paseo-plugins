@@ -26,6 +26,7 @@ import {
   stepsFromMetadata,
   compareProjectRows,
   isMainCheckout,
+  mainCheckoutGroup,
   missingMainCheckouts,
   taskWindow,
   stepContrast,
@@ -314,8 +315,17 @@ test("main checkouts: the project's own folder in a git project, first among its
     row("old", "worktree", "/w/t/old", "2026-11-01"),
   ];
   assert.deepEqual(
-    [...rows].sort(compareProjectRows("created")).map((entry) => entry.ref.key),
+    [...rows].sort(compareProjectRows("created", new Set(["main"]))).map((entry) => entry.ref.key),
     ["main", "new", "old"],
+  );
+  // Several workspaces in one main checkout share a group per host; the sidebar labels the oldest.
+  assert.equal(
+    mainCheckoutGroup({ hostId: "mac", projectRootPath: "/w/app/" }),
+    mainCheckoutGroup({ hostId: "mac", projectRootPath: "/w/app" }),
+  );
+  assert.notEqual(
+    mainCheckoutGroup({ hostId: "mac", projectRootPath: "/w/app" }),
+    mainCheckoutGroup({ hostId: "devbox", projectRootPath: "/w/app" }),
   );
 });
 

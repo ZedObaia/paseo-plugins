@@ -31,7 +31,6 @@ import { ProgressLine, useAgentWork, type AgentWork } from "./progress";
 import {
   STATUS_LABELS,
   archiveRisks,
-  isMainCheckout,
   compactTimeAgo,
   formatDiffCount,
   identityColor,
@@ -57,6 +56,8 @@ export interface Sidebar {
   hostBadges: ReadonlyMap<string, string>;
   /** Running devices' names by workspace id, from the Devices plugin. */
   devices: ReadonlyMap<string, readonly string[]>;
+  /** The workspace labelled main in each project's main checkout, one per host, by key. */
+  mainCheckouts: ReadonlySet<string>;
   toggleCollapsed(key: string): void;
 }
 
@@ -485,7 +486,7 @@ function WorkspaceRow({
   indented?: boolean;
 }) {
   const { s, c, p, touch, iconSm } = useUi();
-  const { view, prefs, projectOf, hostBadges, devices } = useSidebar();
+  const { view, prefs, projectOf, hostBadges, devices, mainCheckouts } = useSidebar();
   const paseo = usePaseo();
   const toast = useToast();
   const workspace = useWorkspace(reference);
@@ -516,7 +517,7 @@ function WorkspaceRow({
   const busy = archiving || workspace.archivingAt !== null;
   const pinned = workspace.pinnedAt !== null;
   // The main checkout always stays, as Orca's does: no archive here, and the sidebar recreates it.
-  const main = isMainCheckout(workspace);
+  const main = mainCheckouts.has(reference.key);
   const device = devices.get(reference.id);
   const editing = renaming && !touch;
   const rowHovered = hovered && !editing;
