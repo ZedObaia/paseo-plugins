@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { format } from "sql-formatter";
 import { z } from "zod";
 import { AgentJobs, conversationSchema } from "./agents";
@@ -113,7 +113,7 @@ export async function startStudio(options: {
   url: string;
   provider?: string;
   browserOrigin?: string;
-  paseo: PaseoApi;
+  paseo: PluginHandlerContext["paseo"];
 }): Promise<Studio> {
   if (databaseType(options.url) === "sqlite") options.url = await sqliteFile(options.url, options.directory);
   else postgresUrl(options.url);

@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type {
-  PaseoApi,
-  PaseoAgentHandle,
-  PaseoWorkspaceHandle,
-  PaseoProviderSnapshotResult,
-} from "@getpaseo/client";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
 import type { Column } from "./postgres";
+
+// From the plugin API rather than @getpaseo/client: a clean install resolves only Paseo's own
+// modules, even for type-only imports.
+type PaseoApi = PluginHandlerContext["paseo"];
+type PaseoAgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;
+type PaseoWorkspaceHandle = ReturnType<PaseoApi["workspaces"]["ref"]>;
+type PaseoProviderSnapshotResult = Awaited<ReturnType<PaseoApi["providers"]["snapshot"]>>;
 
 const answer = z.object({ sql: z.string().min(1).max(100000), explanation: z.string().max(20000) });
 export const conversationSchema = z
