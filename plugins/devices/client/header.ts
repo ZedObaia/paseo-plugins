@@ -1,8 +1,20 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import type { z } from "zod";
 import { listRpc } from "../shared/contracts";
 import { devicePanel } from "./location";
 
 const POLL_MS = 8_000;
+
+/** What a workspace's device button says: its device's name, or how many it holds. */
+export function deviceLabels(list: Pick<z.infer<typeof listRpc.output>, "devices" | "assignments">) {
+  const names = new Map<string, string[]>();
+  for (const a of list.assignments) {
+    const device = list.devices.find((d) => d.id === a.deviceId);
+    if (device) names.set(a.workspaceId, [...(names.get(a.workspaceId) ?? []), device.name]);
+  }
+  // a long name would truncate a "+1"
+  return new Map([...names].map(([id, all]) => [id, all.length > 1 ? `${all.length} devices` : all[0]!]));
+}
 
 /**
  * A Device button in each workspace's header, named after the workspace's device, or saying how
@@ -58,14 +70,7 @@ export function headerButtons(client: PluginClientContext): () => void {
       const labels = new Map<string, string>();
       if (devices.ios.available || devices.android.available) {
         for (const workspace of workspaces.entries) labels.set(workspace.id, "");
-        const names = new Map<string, string[]>();
-        for (const a of devices.assignments) {
-          const device = devices.devices.find((d) => d.id === a.deviceId);
-          if (device) names.set(a.workspaceId, [...(names.get(a.workspaceId) ?? []), device.name]);
-        }
-        // one device's name, or how many: a long name would truncate a "+1"
-        for (const [workspaceId, list] of names)
-          labels.set(workspaceId, list.length > 1 ? `${list.length} devices` : list[0]);
+        for (const [workspaceId, label] of deviceLabels(devices)) labels.set(workspaceId, label);
       }
       show(labels);
     } catch {

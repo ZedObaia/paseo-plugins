@@ -15,13 +15,19 @@ interface State {
   assignments: Assignment[];
   // devices this plugin created (simulators, extra emulator instances): offered for deletion
   owned: string[];
-  // devices the user let agents drive (agent-device installs its helpers on first use)
-  agentTools: string[];
   // workspace id -> the device its agents last chose with use_device
   targets: Record<string, string>;
 }
 
-let state: State = { assignments: [], owned: [], agentTools: [], targets: {} };
+let state: State = { assignments: [], owned: [], targets: {} };
+
+// The user's Agent tools setting (agent-device installs its helpers on a device it first drives):
+// off until they turn it on.
+let agentTools = false;
+export const agentToolsOn = () => agentTools;
+export function setAgentTools(on: boolean): void {
+  agentTools = on;
+}
 
 export async function loadState(): Promise<void> {
   try {
@@ -47,22 +53,6 @@ function save(): Promise<void> {
 export const assignments = (): readonly Assignment[] => state.assignments;
 export const owned = (): readonly string[] => state.owned;
 export const isOwned = (deviceId: string) => state.owned.includes(deviceId);
-export const agentToolsAllowed = (deviceId: string) => state.agentTools.includes(deviceId);
-export const anyAgentTools = () => state.agentTools.length > 0;
-
-export async function allowAgentTools(deviceId: string, allow: boolean): Promise<void> {
-  state.agentTools = state.agentTools.filter((id) => id !== deviceId);
-  if (allow) {
-    // agents keep the device they drive: allowing one added before it doesn't move them
-    const holder = holderOf(deviceId);
-    const current = holder && targetOf(holder.workspaceId);
-    if (holder && current) state.targets[holder.workspaceId] ??= current.deviceId;
-    state.agentTools.push(deviceId);
-  }
-  // allowed again later, it doesn't pull agents back from where they moved
-  else forgetTarget(deviceId);
-  await save();
-}
 export const holderOf = (deviceId: string) => state.assignments.find((a) => a.deviceId === deviceId);
 
 /** Forgets that agents in any workspace chose this device. */
@@ -101,21 +91,20 @@ export async function removeAssignment(workspaceId: string, deviceId: string): P
 }
 
 /**
- * The device agents in a workspace drive, of those it holds that allow agents: the one they last
- * chose, else the first added. agent-device follows one device per workspace.
+ * The device agents in a workspace drive, while agent tools are on: the one they last chose, else
+ * the first it added. agent-device follows one device per workspace.
  * ponytail: per workspace, so two agents in one workspace switch each other; per-agent config
  * files would fix that.
  */
 export function targetOf(workspaceId: string): Assignment | undefined {
-  const drivable = state.assignments.filter(
-    (a) => a.workspaceId === workspaceId && agentToolsAllowed(a.deviceId),
-  );
-  return drivable.find((a) => a.deviceId === state.targets[workspaceId]) ?? drivable[0];
+  if (!agentTools) return undefined;
+  const held = state.assignments.filter((a) => a.workspaceId === workspaceId);
+  return held.find((a) => a.deviceId === state.targets[workspaceId]) ?? held[0];
 }
 
 export async function setTarget(workspaceId: string, deviceId: string): Promise<void> {
-  // released, taken over or consent withdrawn since use_device began: it mustn't come back later
-  if (holderOf(deviceId)?.workspaceId !== workspaceId || !agentToolsAllowed(deviceId)) return;
+  // released or taken over since use_device began: it mustn't come back as the target later
+  if (holderOf(deviceId)?.workspaceId !== workspaceId) return;
   state.targets[workspaceId] = deviceId;
   await save();
 }
@@ -123,11 +112,8 @@ export async function setTarget(workspaceId: string, deviceId: string): Promise<
 export async function setOwned(deviceId: string, owned: boolean): Promise<void> {
   state.owned = state.owned.filter((id) => id !== deviceId);
   if (owned) state.owned.push(deviceId);
-  else {
-    // a copy that's gone for good: its id may come back as a different emulator
-    unassign(deviceId);
-    state.agentTools = state.agentTools.filter((id) => id !== deviceId);
-  }
+  // a copy that's gone for good: its id may come back as a different emulator
+  else unassign(deviceId);
   await save();
 }
 

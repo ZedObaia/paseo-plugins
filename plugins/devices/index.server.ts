@@ -1,36 +1,44 @@
+import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
-  agentToolsRpc,
+  agentSettings,
   assignRpc,
+  controlRpc,
+  controlsRpc,
   createRpc,
   frameRpc,
   inputRpc,
   listRpc,
   powerRpc,
+  screenshotRpc,
+  screenshotSearchRpc,
+  thumbnailRpc,
   type Device,
 } from "./shared/contracts";
+import { applyControl, readControls, screenshot } from "./server/controls";
 import * as android from "./server/android";
 import { PICKER_SOCKET, injectDeviceTools, syncAgentConfigs } from "./server/agents";
-import { encode, forget, type Frame } from "./server/frames";
+import { encode, forget, thumbnail, type Frame } from "./server/frames";
 import * as ios from "./server/ios";
 import { servePicker, type Picker } from "./server/picker";
 import {
   addAssignment,
-  agentToolsAllowed,
-  allowAgentTools,
+  agentToolsOn,
   assignments,
   holderOf,
   isOwned,
   loadState,
   owned,
   removeAssignment,
+  setAgentTools,
   setOwned,
   setTarget,
   targetOf,
 } from "./server/state";
 
 type Platform = { available: boolean; reason: string };
-type Listed = Omit<Device, "owned" | "agentTools" | "error">;
+type Listed = Omit<Device, "owned" | "error">;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -126,7 +134,6 @@ function withStatus(listed: Listed[]): Device[] {
       ...d,
       state: booting.has(d.id) ? "booting" : d.state,
       owned: isOwned(d.id),
-      agentTools: agentToolsAllowed(d.id),
       error: failures.get(d.id) ?? null,
     };
   });
@@ -143,7 +150,6 @@ function withStatus(listed: Listed[]): Device[] {
       state: booting.has(id) ? "booting" : "shutdown",
       kind: platform === "ios" ? "simulator" : "emulator",
       owned: isOwned(id),
-      agentTools: agentToolsAllowed(id),
       error: failures.get(id) ?? null,
     });
   }
@@ -160,7 +166,6 @@ function withStatus(listed: Listed[]): Device[] {
       // nothing to turn on, off, copy or delete: it can only be released
       kind: "physical",
       owned: false,
-      agentTools: agentToolsAllowed(id),
       error: null,
     });
   }
@@ -212,22 +217,40 @@ async function deleteOwned(deviceId: string): Promise<void> {
 }
 
 export default function contribute(server: PluginServerContext) {
-  // files from before an update, or for an emulator that changed while the daemon was down
-  const ready = loadState().then(() =>
-    syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error)),
-  );
+  // The Agent tools setting: off until read, and if it can't be read.
+  const settings = server.registerSettings(agentSettings);
+  const apply = (s: Awaited<ReturnType<typeof settings.read>>) =>
+    setAgentTools(s.status === "ready" && s.values.agentTools);
+  let changed = false;
+  const ready = loadState()
+    .then(() => settings.read())
+    .then((s) => void (changed || apply(s)))
+    .catch((error) => console.error("reading settings:", error))
+    // files from before an update, or for an emulator that changed while the daemon was down
+    .then(() => syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error)));
+  // agents already running read their workspace's file on every call: turning agent tools off
+  // takes their devices away at once
+  const stopSettings = settings.subscribe(async (s) => {
+    changed = true;
+    apply(s);
+    await ready;
+    await syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error));
+  });
   const stopReaper = ios.startIdleReaper();
   injectDeviceTools(server, ready);
 
-  // Agents switch between their workspace's devices, or take a free one the user allowed agents on
+  // Agents switch between their workspace's devices, or take a free simulator or emulator. A USB
+  // phone is the user's own: agents only drive one the user added to their workspace.
+  const usable = (d: Device, workspaceId: string) =>
+    d.kind !== "physical" || holderOf(d.id)?.workspaceId === workspaceId;
+  const OFF = "The user hasn't turned on agent tools; they do that in the Devices plugin's settings";
   const picker: Picker = {
     async list(workspace) {
       await ready;
-      const allowed = withStatus((await listDevices()).devices).filter((d) => d.agentTools);
-      if (!allowed.length)
-        return "The user hasn't allowed agents on any device. They do that in this workspace's Device panel.";
+      if (!agentToolsOn()) return OFF;
       const target = targetOf(workspace.workspaceId)?.deviceId;
-      return allowed
+      return withStatus((await listDevices()).devices)
+        .filter((d) => usable(d, workspace.workspaceId))
         .map((d) => {
           const holder = holderOf(d.id);
           const held = !holder
@@ -243,6 +266,7 @@ export default function contribute(server: PluginServerContext) {
     },
     async use(workspace, deviceId) {
       await ready;
+      if (!agentToolsOn()) throw new Error(OFF);
       const listed = (await listDevices()).devices;
       const device = withStatus(listed).find((d) => d.id === deviceId);
       if (!device) throw new Error("No such device on this host; call list_devices");
@@ -250,8 +274,8 @@ export default function contribute(server: PluginServerContext) {
       // host, or an emulator copy that failed to start (it ran read-only, so it can't start again)
       if (!booting.has(deviceId) && !listed.some((d) => d.id === deviceId))
         throw new Error(`${device.name} isn't on this host right now; use another device`);
-      if (!device.agentTools)
-        throw new Error(`The user hasn't allowed agents on ${device.name}; they do that in the Device panel`);
+      if (!usable(device, workspace.workspaceId))
+        throw new Error(`${device.name} is a USB device: only the user can add it to a workspace`);
       // another workspace's device stays theirs
       await addAssignment(workspace, deviceId, false);
       await setTarget(workspace.workspaceId, deviceId);
@@ -287,17 +311,6 @@ export default function contribute(server: PluginServerContext) {
     const result = await addAssignment(workspace, deviceId, takeOver);
     await syncAgentConfigs();
     return { message: result };
-  });
-
-  server.handle(agentToolsRpc, async ({ deviceId, allow }) => {
-    await ready;
-    if (allow && !(await listDevices()).devices.some((d) => d.id === deviceId)) {
-      throw new Error("That device isn't on this host");
-    }
-    await allowAgentTools(deviceId, allow);
-    // agents already running read their workspace's file on every call
-    await syncAgentConfigs();
-    return { message: allow ? "Agents in its workspace can drive it" : "Agents can't drive it any more" };
   });
 
   // An archived workspace gives its devices back. One made for it ("New copy") is turned off, not
@@ -381,6 +394,7 @@ export default function contribute(server: PluginServerContext) {
       else if (input.kind === "swipe") await ios.iosSwipe(udid, input.from, input.to, input.durationMs);
       else if (input.kind === "text") await ios.iosText(udid, input.text);
       else if (input.kind === "button") await ios.iosButton(udid, input.button);
+      else if (input.kind === "key") await ios.iosKey(udid, input.key);
       else await ios.iosRotate(udid, input.orientation);
       return { ok: true as const };
     }
@@ -389,11 +403,58 @@ export default function contribute(server: PluginServerContext) {
     else if (input.kind === "swipe") await android.androidSwipe(s, input.from, input.to, input.durationMs);
     else if (input.kind === "text") await android.androidText(s, input.text);
     else if (input.kind === "button") await android.androidButton(s, input.button);
+    else if (input.kind === "key") await android.androidKey(s, input.key);
     else await android.androidRotate(s, input.orientation);
     return { ok: true as const };
   });
 
+  server.handle(controlsRpc, ({ deviceId }) => readControls(deviceId));
+  server.handle(controlRpc, async ({ deviceId, action }) => ({
+    message: await applyControl(deviceId, action),
+  }));
+
+  // The "+" menu's Device screen picker: each running device's screen, saved as a PNG on this
+  // host. The attachment is text naming the file, which agents on the host open as an image.
+  server.handle(screenshotSearchRpc, async ({ query }) => {
+    await ready;
+    const words = query.trim().toLowerCase();
+    const on = withStatus((await listDevices()).devices).filter(
+      (d) => d.state === "booted" && d.name.toLowerCase().includes(words),
+    );
+    const items = await Promise.all(
+      on.map(async (d) => {
+        const file = await screenshot(d.id).catch(() => null);
+        if (!file) return [];
+        const holder = holderOf(d.id)?.workspaceName;
+        const what = `${d.name}${d.detail ? ` (${d.detail})` : ""}`;
+        return [
+          {
+            id: file,
+            // the picker shows "identifier title"; the chip, the source and the identifier
+            identifier: d.detail || (d.platform === "ios" ? "iOS" : "Android"),
+            title: `${d.name} screen`,
+            subtitle: holder,
+            url: pathToFileURL(file).href,
+            text:
+              `A screenshot of ${what}${holder ? `, ${holder}'s device` : ""}, taken just now, is ` +
+              `saved at ${file}. Open that image file to see the screen.`,
+            resourceType: "screenshot",
+          },
+        ];
+      }),
+    );
+    return { items: items.flat() };
+  });
+
+  server.handle(thumbnailRpc, ({ path }) => thumbnail(path));
+
+  server.handle(screenshotRpc, async ({ deviceId }) => {
+    const file = await screenshot(deviceId, true);
+    return { path: file, png: (await readFile(file)).toString("base64") };
+  });
+
   return () => {
+    stopSettings();
     stopReaper();
     stopPicker();
   };

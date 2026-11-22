@@ -1,20 +1,49 @@
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginHookContext, PluginServerContext } from "@getpaseo/plugin/server";
 import type { Assignment } from "../shared/contracts";
 import { serialOf } from "./android";
 import { NODE, NODE_ENV, PLUGIN_DIR, dependencyFile } from "./paths";
 import type { Workspace } from "./picker";
-import { STATE_DIR, anyAgentTools, assignmentFor, assignments, isInside, targetOf } from "./state";
+import { STATE_DIR, agentToolsOn, assignmentFor, assignments, isInside, targetOf } from "./state";
 
 const AGENT_DEVICE = dependencyFile("agent-device", "bin/agent-device.mjs");
 const CONFIG_DIR = path.join(STATE_DIR, "agent-device");
 export const PICKER_SOCKET = path.join(STATE_DIR, "picker.sock");
-const configFile = (workspaceId: string) =>
-  path.join(CONFIG_DIR, `${workspaceId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`);
+const safe = (workspaceId: string) => workspaceId.replace(/[^A-Za-z0-9_-]/g, "_");
+const configFile = (workspaceId: string) => path.join(CONFIG_DIR, `${safe(workspaceId)}.json`);
+// one agent-device command per workspace, bound to its config file
+const commandFile = (workspaceId: string) => path.join(STATE_DIR, "bin", safe(workspaceId), "agent-device");
+const quote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
 /**
- * agent-device reads this file on every tool call, so agents follow it as soon as it changes. It
+ * The agent-device command line for a workspace's agents: agent-device, on the device its config
+ * file names. With no file (agent tools off, or no device) it fails without starting agent-device,
+ * so it never reaches a device the user didn't give agents.
+ */
+async function writeCommand(workspaceId: string): Promise<string> {
+  const file = commandFile(workspaceId);
+  const config = configFile(workspaceId);
+  const env = { ...NODE_ENV, AGENT_DEVICE_CONFIG: config, AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1" };
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(
+    `${file}.tmp`,
+    [
+      "#!/bin/sh",
+      "# Paseo's Devices plugin: agent-device for one workspace's agents, on its device.",
+      `[ -f ${quote(config)} ] || { echo "No device for agents: agent tools are off, or this workspace has none. Use device-picker's list_devices and use_device." >&2; exit 1; }`,
+      ...Object.entries(env).map(([key, value]) => `export ${key}=${quote(value)}`),
+      `exec ${quote(NODE)} ${quote(AGENT_DEVICE)} "$@"`,
+      "",
+    ].join("\n"),
+  );
+  await chmod(`${file}.tmp`, 0o755);
+  await rename(`${file}.tmp`, file);
+  return file;
+}
+
+/**
+ * agent-device reads this file on every command, so agents follow it as soon as it changes. It
  * names the device the workspace's agents drive and a session named after that device: a session
  * stays on the device it first used, so a new device needs a new session.
  */
@@ -43,11 +72,11 @@ let syncing = Promise.resolve();
 
 /**
  * Brings every workspace's file in line with the device its agents drive (targetOf) and deletes
- * the others. A file is only written for a device the user allowed agent tools on, so agents
- * already running stop reaching a device that was released, taken over, deleted or had consent
- * withdrawn: they move to another of the workspace's allowed devices, or with none left, the
- * missing file fails every agent-device call. agent-device never installs its helpers on a device
- * without consent. Runs after every change, consent included; one sync at a time.
+ * the others. Files are only written while the user has agent tools on, so turning them off takes
+ * every device from agents already running: the missing file fails every agent-device call, and
+ * agent-device never installs its helpers without consent. A device that was released, taken over
+ * or deleted is left for another of the workspace's devices, if there is one. Runs after every
+ * change, the setting included; one sync at a time.
  */
 export function syncAgentConfigs(): Promise<void> {
   syncing = syncing
@@ -84,15 +113,29 @@ async function workspaceAt(paseo: PaseoApi, cwd: string): Promise<Workspace | nu
     : null;
 }
 
-const NO_DEVICE =
-  "This workspace has no simulator or emulator agents may drive yet, so the `device` tools fail " +
-  "until it has one. To use one, call `device-picker`'s list_devices, then use_device with a free device.";
+/** How to drive a device, said once to each agent instead of loading agent-device's 59 MCP tools. */
+const instructions = (command: string, hasDevice: boolean) =>
+  [
+    `To see and drive this workspace's iOS simulator or Android emulator, run \`${command}\`: the ` +
+      "agent-device command line, bound to the device this workspace's agents use. Start with " +
+      `\`${command} --help\`, and \`${command} help workflow\` for the full guide; write its commands ` +
+      "out in full, as that help says. To switch to another of the workspace's devices, or take a free " +
+      "simulator or emulator, call `device-picker`'s list_devices, then use_device.",
+    hasDevice
+      ? ""
+      : "This workspace has no device yet, so the command fails until it has one: call list_devices, " +
+        "then use_device with a free device.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
 /**
- * Agents started in a workspace get agent-device's MCP tools for one of its devices once the user
- * has allowed agent tools on it: agent-device installs its helpers there on first use. They also
- * get the picker, to switch between the workspace's devices or take a free one the user allowed
- * agents on; agent-device follows its config file, rewritten on every change.
+ * Once the user has turned agent tools on, agents started in a workspace get the agent-device
+ * command line for one of its devices (agent-device installs its helpers there on first use) and
+ * the picker, to switch between the workspace's devices or take a free simulator or emulator. The
+ * command line costs an agent a paragraph of instructions, where agent-device's MCP server would
+ * add 59 tools (about 64k tokens) to every agent; it follows its config file, rewritten on every
+ * change.
  */
 export function injectDeviceTools(server: PluginServerContext, ready: Promise<void>) {
   server.before("agent.create", async ({ request }, { paseo }) => {
@@ -100,27 +143,19 @@ export function injectDeviceTools(server: PluginServerContext, ready: Promise<vo
     // Paseo's own background agents (commit messages, PR descriptions) don't drive devices
     if (config.internal) return undefined;
     await ready;
-    if (!anyAgentTools()) return undefined;
+    if (!agentToolsOn()) return undefined;
     const workspace = assignmentFor(config.cwd) ?? (await workspaceAt(paseo, config.cwd).catch(() => null));
     if (!workspace) return undefined;
     // picks up an emulator started outside the plugin since the last change
     await syncAgentConfigs().catch((error) => console.error("syncing agent-device configs:", error));
+    const command = await writeCommand(workspace.workspaceId);
+    const prompt = instructions(command, Boolean(targetOf(workspace.workspaceId)));
     return {
       ...request,
       config: {
         ...config,
         mcpServers: {
           ...config.mcpServers,
-          device: {
-            type: "stdio" as const,
-            command: NODE,
-            args: [AGENT_DEVICE, "mcp"],
-            env: {
-              ...NODE_ENV,
-              AGENT_DEVICE_CONFIG: configFile(workspace.workspaceId),
-              AGENT_DEVICE_NO_UPDATE_NOTIFIER: "1",
-            },
-          },
           "device-picker": {
             type: "stdio" as const,
             command: NODE,
@@ -132,9 +167,7 @@ export function injectDeviceTools(server: PluginServerContext, ready: Promise<vo
             },
           },
         },
-        ...(targetOf(workspace.workspaceId)
-          ? {}
-          : { systemPrompt: [config.systemPrompt, NO_DEVICE].filter(Boolean).join("\n\n") }),
+        systemPrompt: [config.systemPrompt, prompt].filter(Boolean).join("\n\n"),
       },
     };
   });

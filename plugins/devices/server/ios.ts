@@ -4,14 +4,14 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type WebSocketType from "ws";
-import type { Device } from "../shared/contracts";
+import type { Device, Key } from "../shared/contracts";
 import { keyEvents } from "../shared/keyboard";
 import { run, sleep, waitFor } from "./exec";
 import type { Frame } from "./frames";
 import { ADDON_NODE, PLUGIN_DIR, pluginRequire } from "./paths";
 
 const WebSocket = pluginRequire("ws") as typeof WebSocketType;
-const simctl = (args: string[], timeoutMs?: number) => run("xcrun", ["simctl", ...args], timeoutMs);
+export const simctl = (args: string[], timeoutMs?: number) => run("xcrun", ["simctl", ...args], timeoutMs);
 
 export async function iosAvailability(): Promise<{ available: boolean; reason: string }> {
   if (process.platform !== "darwin") return { available: false, reason: "iOS simulators need a Mac" };
@@ -26,11 +26,11 @@ export async function iosAvailability(): Promise<{ available: boolean; reason: s
 type SimctlDevice = { udid: string; name: string; state: string; deviceTypeIdentifier: string };
 const kinds = new Map<string, { type: string; runtime: string }>();
 
-export async function listIos(): Promise<Omit<Device, "owned" | "agentTools" | "error">[]> {
+export async function listIos(): Promise<Omit<Device, "owned" | "error">[]> {
   const json = JSON.parse(await simctl(["list", "devices", "available", "-j"])) as {
     devices: Record<string, SimctlDevice[]>;
   };
-  const result: Omit<Device, "owned" | "agentTools" | "error">[] = [];
+  const result: Omit<Device, "owned" | "error">[] = [];
   for (const [runtime, devices] of Object.entries(json.devices)) {
     if (!runtime.includes("SimRuntime.iOS-")) continue;
     const version = runtime.replace(/^.*SimRuntime\.iOS-/, "").replace(/-/g, ".");
@@ -349,6 +349,28 @@ export async function iosText(udid: string, text: string): Promise<void> {
       send(ws, KEY, event);
       await sleep(4);
     }
+  });
+}
+
+// HID usages of the keys the live screen sends as keys rather than text
+const KEY_USAGES: Record<Key, number> = {
+  enter: 40,
+  escape: 41,
+  backspace: 42,
+  tab: 43,
+  right: 79,
+  left: 80,
+  down: 81,
+  up: 82,
+};
+
+export async function iosKey(udid: string, key: Key): Promise<void> {
+  const usage = KEY_USAGES[key];
+  await withSession(udid, async (s) => {
+    const ws = await socket(s);
+    send(ws, KEY, { type: "down", usage });
+    await sleep(4);
+    send(ws, KEY, { type: "up", usage });
   });
 }
 

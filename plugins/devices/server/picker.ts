@@ -15,13 +15,13 @@ const TOOLS = [
   {
     name: "list_devices",
     description:
-      "The simulators and emulators the user allowed agents to drive, whether each is on, and which workspace holds it.",
+      "The host's simulators and emulators, and USB devices the user added to this workspace: whether each is on, and which workspace holds it.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "use_device",
     description:
-      "Makes the device tools drive a device from list_devices: one of this workspace's, or a free one, which joins this workspace (the user sees it in its Device panel). A simulator or emulator that is off is turned on.",
+      "Makes the device tools drive a device from list_devices: one of this workspace's, or a free simulator or emulator, which joins this workspace (the user sees it in its Device panel). A simulator or emulator that is off is turned on.",
     inputSchema: {
       type: "object",
       properties: { deviceId: { type: "string", description: "An id from list_devices" } },
