@@ -231,14 +231,16 @@ export function ChatRow({
   else if (reason === "needs_input") mark = <NeedsInputIcon />;
   else if (reason) mark = <View style={[s.dot, { backgroundColor: tones[reason] }]} />;
   else mark = <Icon name="MessageSquare" size={iconSm} color={c.foregroundMuted} />;
-  const open = () =>
-    bot?.bridge ? bot.bridge.openChat(bot.id, agent.id) : view.navigation.openAgent(reference);
+  // In Paseo's own chat view, inside the bot's workspace, like any other agent.
+  const open = () => view.navigation.openAgent(reference);
+  const selected = view.active.agent?.key === reference.key;
   const reasonLabel =
     reason === "needs_input" ? "Needs input" : reason === "failed" ? "Failed" : "Ready to review";
   return (
     <View onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
       <Pressable
         accessibilityRole="button"
+        accessibilityState={{ selected }}
         accessibilityLabel={[botName, chatTitle(agent.title), reason ? reasonLabel : null]
           .filter(Boolean)
           .join(", ")}
@@ -247,6 +249,7 @@ export function ChatRow({
           s.workspaceRow,
           !withBot && s.chatIndent,
           hovered && s.hover,
+          selected && s.selected,
           pressed && s.pressed,
         ]}
       >
