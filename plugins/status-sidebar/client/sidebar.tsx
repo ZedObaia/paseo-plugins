@@ -234,6 +234,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
                   onToggle={() => sidebar.toggleCollapsed("section:bots")}
                 >
                   <NewBotButton bots={bots} />
+                  <GroupingToggle />
                   {bell}
                 </SectionHeader>
                 {botsCollapsed ? null : <BotsSection bots={bots} chats={chats} />}
@@ -245,7 +246,12 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
                 collapsed={workspacesCollapsed}
                 onToggle={() => sidebar.toggleCollapsed("section:workspaces")}
               >
-                {bots.length ? null : bell}
+                {bots.length ? null : (
+                  <>
+                    <GroupingToggle />
+                    {bell}
+                  </>
+                )}
                 <DisplayMenu
                   hosts={hosts}
                   projects={projects}
@@ -421,6 +427,30 @@ const ROW_ITEMS = [
 ] as const;
 
 /** The sliders button and its pages (sidebar/display-preferences/menu.tsx). */
+/** Beside the bell: one press flips the workspaces between project and status grouping. */
+function GroupingToggle() {
+  const { s, c } = useUi();
+  const { prefs, update } = useSidebar();
+  const status = prefs.grouping === "status";
+  const next = status ? "project" : "status";
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Group workspaces by ${next}`}
+      onPress={() => update((current) => ({ ...current, grouping: next }))}
+      style={(state: PressState) => [s.bell, state.hovered && s.hover]}
+    >
+      {(state: PressState) => (
+        <Icon
+          name={status ? "CircleDashed" : "Folder"}
+          size={14}
+          color={state.hovered ? c.foreground : c.foregroundMuted}
+        />
+      )}
+    </Pressable>
+  );
+}
+
 function DisplayMenu({
   hosts,
   projects,
