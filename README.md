@@ -2,19 +2,19 @@
 
 Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 
-| Plugin                                                         | What it does                                                                                                    |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                          |
-| [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                      |
-| [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing      |
-| [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                              |
-| [Auto fetch](plugins/auto-fetch/OVERVIEW.md)                   | A new project's existing worktrees as workspaces, background fetching, and fast-forwarded local branches        |
-| [Linear](plugins/linear/OVERVIEW.md)                           | Linear issues from several accounts: a board per project, issue details and comments, and agents on issues      |
+| Plugin                                                         | What it does                                                                                                                             |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [Resources](plugins/resources/OVERVIEW.md)                     | CPU, memory, disk, processes and Docker usage of each Paseo host, with cleanup actions                                                   |
+| [Devices](plugins/devices/OVERVIEW.md)                         | iOS simulators and Android emulators per workspace: live view, input, and tools for agents                                               |
+| [Projects everywhere](plugins/projects-everywhere/OVERVIEW.md) | Which projects each host has, and adding a project to several hosts at once, cloning it where it's missing                               |
+| [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                                                       |
+| [Auto fetch](plugins/auto-fetch/OVERVIEW.md)                   | A new project's existing worktrees as workspaces, background fetching, and fast-forwarded local branches                                 |
+| [Linear](plugins/linear/OVERVIEW.md)                           | Linear issues from several accounts: a board per project, issue details and comments, and agents on issues                               |
 | [Databases](plugins/databases/OVERVIEW.md)                     | PostgreSQL discovery per workspace, SQLite files, db-studio browsing and editing, schema completion, and queries drafted by Paseo agents |
-| [Quick commands](plugins/quick-commands/OVERVIEW.md)           | Your own commands, for every project or one, run in a workspace's terminal with its branch, paths and ports |
-| [Toolbox](plugins/toolbox/OVERVIEW.md)                         | Connectors, skills and plugins of your Claude, Codex and OpenCode chats: switch, set tool rules, sign in, apply |
-| [Sidebar](plugins/status-sidebar/OVERVIEW.md)                  | Paseo's Default view sidebar with bots, an attention bell, live progress bars and hover cards                   |
-| [Fawzy](plugins/bots/OVERVIEW.md)                              | Personal bots (a fork of paseo-bots) with a bot page, suggestions, connectors and sidebar status                |
+| [Quick commands](plugins/quick-commands/OVERVIEW.md)           | Your own commands, for every project or one, run in a workspace's terminal with its branch, paths and ports                              |
+| [Toolbox](plugins/toolbox/OVERVIEW.md)                         | Connectors, skills and plugins of your Claude, Codex and OpenCode chats: switch, set tool rules, sign in, apply                          |
+| [Sidebar](plugins/status-sidebar/OVERVIEW.md)                  | Paseo's Default view sidebar with bots, an attention bell, live progress bars and hover cards                                            |
+| [Fawzy](plugins/bots/OVERVIEW.md)                              | Personal bots (a fork of paseo-bots) with a bot page, suggestions, connectors and sidebar status                                         |
 
 ## Install
 
