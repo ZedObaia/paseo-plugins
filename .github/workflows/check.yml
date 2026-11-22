@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        plugin: [resources, devices, projects-everywhere, ports, auto-fetch, linear]
+        plugin: [resources, devices, projects-everywhere, ports, auto-fetch, linear, status-sidebar, bots]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
+          cache-dependency-path: plugins/${{ matrix.plugin }}/package.json
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test

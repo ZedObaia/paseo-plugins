@@ -1,0 +1,255 @@
+import type { PaseoAgent, PaseoApi } from "./paseo";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRpc } from "@getpaseo/plugin/client";
+import { interactionRestoreRpc } from "../shared/interaction";
+import { mergeEntries } from "./chat/stream/model";
+
+type AgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;
+type TimelinePage = Awaited<ReturnType<AgentHandle["timeline"]["refetch"]>>;
+export type ChatEntry = TimelinePage["entries"][number];
+type Cursor = NonNullable<TimelinePage["endCursor"]>;
+
+export interface ChatState {
+  entries: ChatEntry[];
+  agent: PaseoAgent | null;
+  /** The first page hasn't arrived yet. */
+  loading: boolean;
+  /** The last timeline sync failed; `retry()` tries again. */
+  error: string | null;
+  /** Older history exists before the first entry we hold. */
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  retrying: boolean;
+  /** Loads the previous page of history (Paseo pages 40 projected items). */
+  loadOlder(): void;
+  retry(): void;
+}
+
+/** Paseo's TIMELINE_FETCH_PAGE_SIZE (timeline/timeline-fetch-policy.ts). */
+const TIMELINE_PAGE_SIZE = 40;
+
+/** A chat's whole timeline, oldest first, page by page (a transcript needs all of it). */
+export async function fullTimeline(api: PaseoApi, agentId: string): Promise<ChatEntry[]> {
+  const handle = api.agents.ref(agentId);
+  let page = await handle.timeline.refetch({ direction: "tail", projection: "projected", limit: 200 });
+  if (page.error) throw new Error(page.error);
+  let entries = page.entries;
+  for (let pages = 0; pages < 100 && page.hasOlder && page.startCursor; pages++) {
+    page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, projection: "projected", limit: 200 });
+    if (page.error) throw new Error(page.error);
+    if (page.entries.length === 0) break;
+    entries = mergeEntries(entries, page.entries);
+  }
+  return entries;
+}
+
+const noop = () => {};
+const EMPTY: ChatState = { entries: [], agent: null, loading: false, error: null, hasOlder: false, loadingOlder: false, retrying: false, loadOlder: noop, retry: noop };
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Live chat state for one agent, synced the way Paseo's timeline sync does it:
+ * the tail page once, then only what's new ("after" the end cursor) on each live
+ * event, merged by the projected entry's first seq. Older pages load on demand.
+ */
+export function useChat(api: PaseoApi | null, agentId: string | null, restoreCards = true): ChatState {
+  const restore = useRpc(interactionRestoreRpc);
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore;
+  const [state, setState] = useState<ChatState>(EMPTY);
+  const actions = useRef<{ loadOlder(): void; retry(): void }>({ loadOlder: noop, retry: noop });
+
+  useEffect(() => {
+    if (!api || !agentId) {
+      setState(EMPTY);
+      actions.current = { loadOlder: noop, retry: noop };
+      return;
+    }
+    setState({ ...EMPTY, loading: true });
+    const handle = api.agents.ref(agentId);
+    let disposed = false;
+    let endCursor: Cursor | null = null;
+    let startCursor: Cursor | null = null;
+    let busy = false;
+    let queued: "tail" | "after" | null = null;
+    let olderBusy = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let entries: ChatEntry[] = [];
+
+    const agentFrom = (page: TimelinePage, current: PaseoAgent | null) => (page.agent as PaseoAgent | null) ?? handle.current() ?? current;
+
+    // Replacement notifications invalidate sequence identities, not the reader's
+    // history window. Rebuild that window before committing it so a 40-item tail
+    // cannot erase loaded prompts or answers. Include the first visible prompt
+    // on daemons that don't support whole-turn pagination yet.
+    const restoreWindow = async (tail: TimelinePage): Promise<TimelinePage> => {
+      let result = tail;
+      const oldest = startCursor && startCursor.epoch === tail.startCursor?.epoch ? startCursor.seq : null;
+      const count = Math.max(entries.length, tail.entries.length);
+      while (!disposed && result.startCursor && result.entries.length > 0) {
+        const first = result.entries[0]!;
+        const covered = oldest !== null ? first.seqStart <= oldest : result.entries.length >= count;
+        if (covered) {
+          const boundary = oldest !== null
+            ? result.entries.findLastIndex((entry) => entry.seqStart <= oldest)
+            : result.entries.length - count;
+          const prompt = result.entries.findLastIndex((entry, index) => index <= boundary && entry.item.type === "user_message");
+          if (prompt >= 0) {
+            result = { ...result, entries: result.entries.slice(prompt), startCursor: { ...result.startCursor, seq: result.entries[prompt]!.seqStart }, hasOlder: result.hasOlder || prompt > 0 };
+            break;
+          }
+        }
+        if (!result.hasOlder) break;
+        const before = result.startCursor;
+        const older = await handle.timeline.refetch({ direction: "before", cursor: before, projection: "projected", limit: TIMELINE_PAGE_SIZE });
+        if (older.error) throw new Error(older.error);
+        if (older.reset || older.staleCursor || older.gap || older.startCursor?.epoch !== before.epoch) {
+          throw new Error("Chat history changed while refreshing. Retry to load it again.");
+        }
+        if (!older.entries.length) break;
+        if (!older.startCursor || older.startCursor.seq >= before.seq) throw new Error("Chat history did not advance while refreshing.");
+        result = { ...result, entries: mergeEntries(result.entries, older.entries), startCursor: older.startCursor, hasOlder: older.hasOlder };
+      }
+      return result;
+    };
+
+    const sync = async (mode: "tail" | "after"): Promise<void> => {
+      if (busy || olderBusy) {
+        if (queued !== "tail") queued = mode;
+        return;
+      }
+      busy = true;
+      try {
+        let recoveryError: string | null = null;
+        if (restoreCards && mode === "tail") {
+          try { await restoreRef.current({ agentId }); }
+          catch (error) { recoveryError = `Could not restore saved cards: ${message(error)}`; }
+          if (disposed) return;
+        }
+        let replace = mode === "tail" || endCursor === null;
+        for (let pages = 0; pages < 25 && !disposed; pages++) {
+          let page = replace
+            ? await handle.timeline.refetch({ direction: "tail", projection: "projected", limit: TIMELINE_PAGE_SIZE })
+            : await handle.timeline.refetch({ direction: "after", cursor: endCursor!, projection: "projected", limit: TIMELINE_PAGE_SIZE });
+          if (disposed) return;
+          if (page.error) throw new Error(page.error);
+          // A new epoch or a gap means our cursor no longer lines up: the page is a fresh tail.
+          const reset = replace || page.reset || page.staleCursor || page.gap;
+          if (reset) page = await restoreWindow(page);
+          if (disposed) return;
+          if (reset) {
+            startCursor = page.startCursor;
+            endCursor = page.endCursor;
+          } else if (page.endCursor) endCursor = page.endCursor;
+          entries = reset ? page.entries : mergeEntries(entries, page.entries);
+          setState((current) => ({
+            ...current,
+            entries,
+            agent: agentFrom(page, current.agent),
+            loading: false,
+            error: recoveryError,
+            retrying: false,
+            hasOlder: reset ? page.hasOlder : current.hasOlder,
+          }));
+          if (!page.hasNewer || page.entries.length === 0) break;
+          replace = false;
+        }
+      } catch (error) {
+        if (!disposed) setState((current) => ({ ...current, loading: false, retrying: false, error: message(error) }));
+      } finally {
+        busy = false;
+        if (queued && !disposed) {
+          const next = queued;
+          queued = null;
+          void sync(next);
+        }
+      }
+    };
+
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void sync("after");
+      }, 80);
+    };
+
+    const loadOlder = () => {
+      if (busy || olderBusy || !startCursor || disposed) return;
+      olderBusy = true;
+      const before = startCursor;
+      setState((current) => (current.hasOlder ? { ...current, loadingOlder: true } : current));
+      void handle.timeline
+        .refetch({ direction: "before", cursor: before, projection: "projected", limit: TIMELINE_PAGE_SIZE })
+        .then((page) => {
+          if (disposed) return;
+          if (endCursor?.epoch !== before.epoch) {
+            setState((current) => ({ ...current, loadingOlder: false }));
+            return;
+          }
+          if (page.error) throw new Error(page.error);
+          if (page.staleCursor || page.reset || page.gap || (page.startCursor && page.startCursor.epoch !== before.epoch)) {
+            setState((current) => ({ ...current, loadingOlder: false }));
+            void sync("tail");
+            return;
+          }
+          if (page.startCursor) startCursor = page.startCursor;
+          entries = mergeEntries(entries, page.entries);
+          setState((current) => ({
+            ...current,
+            entries,
+            hasOlder: page.hasOlder && page.entries.length > 0,
+            loadingOlder: false,
+          }));
+        })
+        .catch((error: unknown) => {
+          if (!disposed) setState((current) => ({ ...current, loadingOlder: false, error: message(error) }));
+        })
+        .finally(() => {
+          olderBusy = false;
+          if (queued && !disposed) {
+            const next = queued;
+            queued = null;
+            void sync(next);
+          }
+        });
+    };
+
+    const retry = () => {
+      setState((current) => ({ ...current, retrying: true }));
+      void sync("tail");
+    };
+    actions.current = { loadOlder, retry };
+
+    const timeline = handle.timeline.subscribe((event) => {
+      const kind = (event as { event?: { type?: string } }).event?.type;
+      if (kind === "replacement") void sync("tail");
+      else schedule();
+    });
+    void sync("tail");
+    const unsubscribeAgent = handle.subscribe(() => {
+      const snapshot = handle.current();
+      if (snapshot && !disposed) setState((current) => ({ ...current, agent: snapshot }));
+    });
+    void handle
+      .refresh()
+      .then((result) => {
+        if (result && !disposed) setState((current) => ({ ...current, agent: result.agent }));
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      timeline();
+      unsubscribeAgent();
+    };
+  }, [api, agentId, restoreCards]);
+
+  const loadOlder = useCallback(() => actions.current.loadOlder(), []);
+  const retry = useCallback(() => actions.current.retry(), []);
+  return { ...state, loadOlder, retry };
+}

@@ -10,6 +10,8 @@ Plugins for [Paseo](https://paseo.sh), one per directory under `plugins/`.
 | [Ports](plugins/ports/OVERVIEW.md)                             | Each workspace's open ports, with links to open them and private or public sharing                         |
 | [Auto fetch](plugins/auto-fetch/OVERVIEW.md)                   | A new project's existing worktrees as workspaces, background fetching, and fast-forwarded local branches   |
 | [Linear](plugins/linear/OVERVIEW.md)                           | Linear issues from several accounts: a board per project, issue details and comments, and agents on issues |
+| [Sidebar](plugins/status-sidebar/OVERVIEW.md)                  | Paseo's Default view sidebar with bots, an attention bell, live progress bars and hover cards              |
+| [Fawzy](plugins/bots/OVERVIEW.md)                              | Personal bots (a fork of paseo-bots) with a bot page, suggestions, connectors and sidebar status           |
 
 ## Install
 
@@ -22,13 +24,15 @@ paseo plugin add git:ZedObaia/paseo-plugins:plugins/projects-everywhere
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/ports
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/auto-fetch
 paseo plugin add git:ZedObaia/paseo-plugins:plugins/linear
+paseo plugin add git:ZedObaia/paseo-plugins:plugins/status-sidebar
+paseo plugin add git:ZedObaia/paseo-plugins:plugins/bots
 ```
 
 Each plugin runs on the daemon you install it into, so install Resources on every host you want to
 watch, Devices on the Mac (or Android SDK host) that runs your simulators, Projects everywhere on
 the hosts you use, Ports on the hosts whose workspaces run servers, Auto fetch on the hosts whose
 worktrees you want in Paseo and kept fetched, and Linear on the hosts whose projects you link to
-Linear. Update with `paseo plugin update <id>`.
+Linear. Update with `paseo plugin update <id>`. Install the Sidebar on every host you use, so it is there whichever host is online, and Fawzy on the host your bots run on (always on is best); the Sidebar shows Fawzy's bots when both are loaded.
 
 ## Develop
 

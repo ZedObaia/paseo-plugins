@@ -1,2 +1,4 @@
 node_modules
 package-lock.json
+# Fawzy keeps upstream paseo-bots' own style so its diffs keep applying (see plugins/bots/UPSTREAM.md).
+plugins/bots

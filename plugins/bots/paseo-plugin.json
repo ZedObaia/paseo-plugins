@@ -1,0 +1,16 @@
+{
+  "id": "fawzy",
+  "name": "Fawzy",
+  "description": "Personal bots and the sidebar that shows them next to your workspaces. A fork of paseo-bots.",
+  "requirements": {
+    "paseo": ">=0.16.0"
+  },
+  "build": [
+    [
+      "npm",
+      "ci",
+      "--omit=dev",
+      "--ignore-scripts"
+    ]
+  ]
+}

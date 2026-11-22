@@ -1,0 +1,234 @@
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
+import { turnEnded, turnStarted } from "./server/activity";
+import { CommandAllowlist } from "./server/commands";
+import { MemoryJournal } from "./server/journal";
+import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
+import { systemPrompt } from "./server/prompt";
+import { RoutineScheduler } from "./server/scheduler";
+import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
+import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } from "./server/library";
+import { probeMcpServer } from "./server/mcp-probe";
+import { mcpSources } from "./server/mcp-sources";
+import { McpOAuth } from "./server/mcp-oauth";
+import { McpOAuthProxy } from "./server/mcp-oauth-proxy";
+import { registerMcpOAuthLifecycle } from "./server/mcp-oauth-lifecycle";
+import { mcpOAuthCancelRpc, mcpOAuthDisconnectRpc, mcpOAuthFinishRpc, mcpOAuthStartRpc, mcpOAuthStatusRpc } from "./shared/mcp-oauth";
+import { accounts, appTools, catalog, connect, disconnect, removeKey, renameAccount, startLogin, cancelLogin, status as appsStatus } from "./server/composio";
+import { BotsHost } from "./server/host";
+import { registerFawzy } from "./server/fawzy";
+import { registerInteractions } from "./server/interactions";
+import { registerHandoffs } from "./server/handoffs";
+import { connectSchedulerHost } from "./server/connection";
+import { Relay } from "./server/relay";
+import { acceptProposal, dismissProposal, getProposal, prepareProposal, registerProposalNotifications } from "./server/proposals";
+import { BOT_TOOLS } from "./server/tools";
+import { ensureHubRelay, hubTools, isHubRelay } from "./server/hub-bridge";
+import { saveUpload } from "./server/uploads";
+import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
+import { shellCommand } from "./shared/commands";
+import {
+  commandAllowRpc,
+  commandListRpc,
+  commandRemoveRpc,
+  ensureBotHomeRpc,
+  exportBotRpc,
+  exportTeamRpc,
+  helloRpc,
+  importBotRpc,
+  importTeamRpc,
+  memoryDeleteRpc,
+  memoryJournalRpc,
+  memoryListRpc,
+  memoryLogDeleteRpc,
+  memoryLogRpc,
+  memoryReadRpc,
+  memoryUndoRpc,
+  memoryWriteRpc,
+  mountRpc,
+  mcpProbeRpc,
+  mcpSourcesRpc,
+  proposalAcceptRpc,
+  proposalDismissRpc,
+  proposalGetRpc,
+  proposalPrepareRpc,
+  appsAccountsRpc,
+  appsCatalogRpc,
+  appsConnectRpc,
+  appsDisconnectRpc,
+  appsRenameRpc,
+  appsToolsRpc,
+  appsRemoveKeyRpc,
+  appsLoginRpc,
+  appsCancelLoginRpc,
+  appsStatusRpc,
+  routineRunNowRpc,
+  routineCancelRunRpc,
+  routineStatusRpc,
+  routineWebhookRpc,
+  skillDeleteRpc,
+  skillImportRpc,
+  skillReadRpc,
+  skillWriteRpc,
+  systemPromptRpc,
+  uploadRpc,
+} from "./shared/rpc";
+
+export default function contribute(server: PluginServerContext) {
+  try {
+    migrateRenamedPluginData();
+  } catch (error) {
+    console.error("paseo-bots: couldn't move the data of the old paseo-bot plugin", error);
+  }
+  // Moves the old folder if needed and writes the Bots project icon.
+  void ensureBotsHome()
+    .then(migrateBotSkills)
+    .catch((error: unknown) => console.error("paseo-bots: couldn't prepare the Bots folder", error));
+  const settings = server.registerSettings(botSettings);
+  const library = async () => {
+    const state = await settings.read();
+    return state.status === "ready" ? (state.values.library ?? EMPTY_LIBRARY) : EMPTY_LIBRARY;
+  };
+  const host = new BotsHost(settings);
+  const stopInteractions = registerInteractions(server, host);
+  const stopHandoffs = registerHandoffs(server, host);
+  const stopProposalNotifications = registerProposalNotifications(server, host);
+  const disconnectSchedulerHost = connectSchedulerHost(host);
+  // Bots' tools and connected apps go through this relay; it reads the saved settings on every call.
+  const relay = new Relay(host, BOT_TOOLS);
+  const oauth = new McpOAuth(host, () => relay.start());
+  const oauthProxy = new McpOAuthProxy(host, relay, oauth);
+  registerMcpOAuthLifecycle(server, host, oauthProxy);
+  void relay.start().catch((error: unknown) => console.error("paseo-bots: couldn't start the relay", error));
+  registerFawzy(server, host, relay);
+  const scheduler = new RoutineScheduler(host, relay);
+  const journal = new MemoryJournal();
+  const commands = new CommandAllowlist();
+  // Every handler and hook receives the plugin's Paseo API; features that start chats need it.
+  const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
+
+  server.handle(helloRpc, (_input, context) => {
+    attach(context);
+    return { scheduler: scheduler.running };
+  });
+  server.handle(ensureBotHomeRpc, (input, context) => {
+    attach(context);
+    return ensureBotHome(input);
+  });
+  server.handle(systemPromptRpc, async (input, context) => systemPrompt(input, await library(), context.paseo, await host.values()));
+  server.handle(memoryListRpc, ({ botId }) => listMemory(botId));
+  server.handle(memoryReadRpc, ({ botId, name }) => readMemory(botId, name));
+  server.handle(memoryWriteRpc, async ({ botId, name, text, expectedRevision }) => {
+    await journal.write(botId, name, text, "app", expectedRevision);
+    return { ok: true };
+  });
+  server.handle(memoryDeleteRpc, async ({ botId, name, expectedRevision }) => {
+    await journal.write(botId, name, null, "app", expectedRevision);
+    return { ok: true };
+  });
+  server.handle(memoryJournalRpc, async ({ botId }) => ({
+    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({ ...entry, canUndo: entry.kind === "created" || before !== null })),
+  }));
+  server.handle(memoryUndoRpc, async ({ botId, id }) => {
+    await journal.undo(botId, id);
+    return { ok: true };
+  });
+  server.handle(memoryLogRpc, async ({ botId, day }) => ({ ...(await listLogDays(botId)), text: day ? (await readLogDay(botId, day)).text : null }));
+  server.handle(memoryLogDeleteRpc, ({ botId, day }) => deleteLogDay(botId, day));
+  server.handle(skillImportRpc, importSkills);
+  server.handle(skillReadRpc, readSkill);
+  server.handle(skillWriteRpc, writeSkill);
+  server.handle(skillDeleteRpc, deleteSkill);
+  server.handle(mcpProbeRpc, async ({ config, serverId }) => {
+    if (config.type === "stdio" || !config.oauth) return probeMcpServer({ config });
+    if (!serverId) return { ok: false as const, error: "Save this OAuth server before testing it." };
+    const saved = await oauth.server(serverId);
+    if (JSON.stringify(saved.config) !== JSON.stringify(config)) return { ok: false as const, error: "The connection changed. Wait for it to save before testing." };
+    return probeMcpServer({ config: await oauthProxy.mount(serverId, "probe", "probe") });
+  });
+  server.handle(mcpOAuthStatusRpc, ({ serverId }) => oauth.status(serverId));
+  server.handle(mcpOAuthStartRpc, ({ serverId, ...input }) => oauth.start(serverId, input));
+  server.handle(mcpOAuthFinishRpc, ({ serverId, callbackUrl }) => oauth.finish(serverId, callbackUrl));
+  server.handle(mcpOAuthCancelRpc, ({ serverId }) => oauth.cancel(serverId));
+  server.handle(mcpOAuthDisconnectRpc, ({ serverId }) => oauth.disconnect(serverId));
+  server.handle(mcpSourcesRpc, () => mcpSources());
+  server.handle(appsStatusRpc, () => appsStatus());
+  server.handle(appsLoginRpc, () => startLogin());
+  server.handle(appsCancelLoginRpc, () => cancelLogin());
+  server.handle(appsRemoveKeyRpc, () => removeKey());
+  server.handle(appsCatalogRpc, () => catalog());
+  server.handle(appsAccountsRpc, accounts);
+  server.handle(appsConnectRpc, connect);
+  server.handle(appsDisconnectRpc, disconnect);
+  server.handle(appsRenameRpc, renameAccount);
+  server.handle(appsToolsRpc, appTools);
+  server.handle(mountRpc, async ({ botId, agentId }) => {
+    const bot = await host.bot(botId);
+    return { tools: await relay.mountTools(botId, agentId), apps: bot?.apps.length ? await relay.mountApps(botId) : null };
+  });
+  server.handle(proposalGetRpc, async ({ id }) => ({ proposal: await getProposal(id) }));
+  server.handle(proposalPrepareRpc, ({ id, receiptIds }) => prepareProposal(id, receiptIds));
+  server.handle(proposalAcceptRpc, ({ id }, context) => { attach(context); return acceptProposal(id, host); });
+  server.handle(proposalDismissRpc, async ({ id }, context) => { attach(context); return { proposal: await dismissProposal(id, host) }; });
+  server.handle(routineStatusRpc, (_input, context) => {
+    attach(context);
+    return scheduler.status();
+  });
+  server.handle(routineRunNowRpc, ({ botId, routineId }, context) => {
+    attach(context);
+    return scheduler.runNow(botId, routineId);
+  });
+  server.handle(routineCancelRunRpc, ({ botId, routineId, runId }, context) => {
+    attach(context);
+    return scheduler.cancelRun(botId, routineId, runId);
+  });
+  server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));
+  server.handle(commandListRpc, async ({ botId }) => ({ rules: await commands.list(botId) }));
+  server.handle(commandAllowRpc, async ({ botId, command, cwd }) => ({ rule: await commands.add(botId, command, cwd) }));
+  server.handle(commandRemoveRpc, async ({ botId, id }) => ({ ok: await commands.remove(botId, id) }));
+  server.handle(exportBotRpc, async (input) => exportBot(input, await library()));
+  server.handle(importBotRpc, importBot);
+  server.handle(exportTeamRpc, async (input) => exportTeam(input, await library()));
+  server.handle(importTeamRpc, importTeam);
+  server.handle(uploadRpc, saveUpload);
+  server.addHook("agent.turn.before", async (event, context) => {
+    host.attach(context.paseo);
+    await turnStarted(host, journal, event).catch((error: unknown) => console.error("paseo-bots: couldn't check memory before a turn", error));
+  });
+  // A bot's saved commands (exact command, exact folder) are approved here instead of asking.
+  server.addHook("agent.permission.before", async ({ agent, request }, context) => {
+    host.attach(context.paseo);
+    const shell = shellCommand(request, agent.cwd);
+    if (!shell) return;
+    const chat = await host.chatOf(agent.id);
+    if (!chat || !(await commands.matches(chat.botId, shell.command, shell.cwd))) return;
+    await context.paseo.agents
+      .ref(agent.id)
+      .respondToPermission({ requestId: request.id, response: { behavior: "allow" } })
+      .catch((error: unknown) => console.error("paseo-bots: couldn't approve an allowed command", error));
+  });
+  server.addHook("agent.turn.after", async (event, context) => {
+    host.attach(context.paseo);
+    await turnEnded(host, journal, scheduler, event).catch((error: unknown) => console.error("paseo-bots: couldn't record a turn", error));
+  });
+  // Paseo Hub triggers run their agent in the Hub folder; give it ask_bot and check_chat.
+  void ensureHubRelay().catch((error: unknown) => console.error("paseo-bots: couldn't create the Hub folder", error));
+  const hubAgentTools = hubTools(host, relay);
+  server.addHook("agent.open.before", async ({ request }, context) => {
+    if (!isHubRelay(request.cwd, request.labels)) return;
+    host.attach(context.paseo);
+    return { ...request, tools: [...request.tools, ...hubAgentTools] };
+  });
+
+  return async () => {
+    oauthProxy.stop();
+    await oauth.stop();
+    cancelLogin();
+    stopInteractions();
+    await stopHandoffs();
+    await stopProposalNotifications();
+    await scheduler.stop();
+    await disconnectSchedulerHost();
+    relay.stop();
+  };
+}

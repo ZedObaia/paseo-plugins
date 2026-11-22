@@ -1,0 +1,8 @@
+{
+  "id": "status-sidebar",
+  "name": "Default view (plugin)",
+  "description": "A replica of Paseo's Default view sidebar, built on the plugin API.",
+  "requirements": {
+    "paseo": ">=0.16.0-beta.2"
+  }
+}
