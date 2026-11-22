@@ -350,6 +350,7 @@ export function countChecks(
 export const BOT_LABEL = "paseo-bots.bot";
 /** Agent metadata a bot writes with its set_status tool. */
 export const BOT_STATUS_KEY = "fawzy.status";
+export { PROGRESS_KEY } from "../shared/progress";
 
 export interface TaskItem {
   readonly text: string;

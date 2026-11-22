@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["index.client.tsx", "client/**/*", "shared/**/*", "test/**/*"]
+  "include": ["index.client.tsx", "index.server.ts", "client/**/*", "server/**/*", "shared/**/*", "test/**/*"]
 }

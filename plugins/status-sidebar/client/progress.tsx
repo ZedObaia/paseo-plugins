@@ -5,13 +5,22 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { getPaseoClient } from "@getpaseo/plugin/client";
 import type { PluginAgentSnapshot } from "@getpaseo/plugin";
-import { BOT_STATUS_KEY, statusFromMetadata, taskProgress, type Progress, type TaskItem } from "./model";
+import {
+  BOT_STATUS_KEY,
+  PROGRESS_KEY,
+  statusFromMetadata,
+  taskProgress,
+  type Progress,
+  type TaskItem,
+} from "./model";
 import { useUi } from "./styles";
 
 type TimelineItem = { type: string; items?: readonly TaskItem[] };
 
 export function useAgentProgress(agent: PluginAgentSnapshot | null | undefined): Progress | null {
-  const said = agent ? statusFromMetadata(agent.metadata[BOT_STATUS_KEY]) : null;
+  const said = agent
+    ? (statusFromMetadata(agent.metadata[PROGRESS_KEY]) ?? statusFromMetadata(agent.metadata[BOT_STATUS_KEY]))
+    : null;
   const running = agent?.status === "running";
   const host = agent?.hostId;
   const id = agent?.id;
