@@ -1,5 +1,6 @@
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
+import { useState } from "react";
 import { View } from "react-native";
 import { applyDefaults, DEFAULT_BOT_DEFAULTS, type Bot } from "../../shared/bot";
 import { addImportedBots } from "../../shared/library";
@@ -10,7 +11,7 @@ import { NewBotDialog } from "../BotDialogs";
 import { useBotHost, useProviders } from "../data";
 import { confirmDialog, nativeTokens } from "../native";
 import type { SectionId } from "../panel/BotPanel";
-import { CardNote } from "../panel/controls";
+import { Button, CardNote } from "../panel/controls";
 import { useTypeScale } from "../typography";
 import { MenuProvider } from "../ui/Menu";
 import { useTooltipTheme } from "../ui/Tooltip";
@@ -18,8 +19,9 @@ import { useBotSettings } from "../useBotSettings";
 import type { BotPageActions } from "./BotHome";
 
 /**
- * The Bots screen's New bot dialog on its own page (screen "bot-new"). The new bot's settings open
- * next; closing the dialog goes to the first bot's home.
+ * The Bots screen's New bot dialog on its own page (screen "bot-new", param n new for each visit).
+ * The new bot's settings open next; closing the dialog goes to the first bot's home. Paseo keeps a
+ * page mounted after leaving it, so the dialog closes first or it would cover the next page.
  */
 export function NewBotPage({ theme, layout, host, openScreen }: PluginScreenProps & Pick<BotPageActions, "openScreen">) {
   const colors = theme.colors;
@@ -29,6 +31,7 @@ export function NewBotPage({ theme, layout, host, openScreen }: PluginScreenProp
   const { settings, commit } = useBotSettings();
   const providers = useProviders(useBotHost(null, localHost));
   const importTeam = useRpc(importTeamRpc);
+  const [open, setOpen] = useState(true);
 
   if (settings.status !== "ready") {
     return (
@@ -42,11 +45,23 @@ export function NewBotPage({ theme, layout, host, openScreen }: PluginScreenProp
   // The Bots screen's defaultProvider: Claude when ready, else the first ready provider.
   const ready = (providers.data ?? []).filter((entry) => entry.status === "ready");
   const provider = (ready.find((entry) => entry.provider === "claude") ?? ready[0])?.provider ?? "";
-  const openSettings = (bot: Bot, section: SectionId) => openScreen({ screenId: "bot-settings", params: { botId: bot.id, section, title: `${bot.name || "Bot"} settings` } });
+  const go = (input: Parameters<typeof openScreen>[0]) => {
+    setOpen(false);
+    openScreen(input);
+  };
+  const openSettings = (bot: Bot, section: SectionId) => go({ screenId: "bot-settings", params: { botId: bot.id, section, title: `${bot.name || "Bot"} settings` } });
   const leave = () => {
     const first = values.bots.find((bot) => !bot.archived);
-    openScreen(first ? { screenId: "bot-home", params: { botId: first.id, title: first.name } } : { screenId: "bots" });
+    go(first ? { screenId: "bot-home", params: { botId: first.id, title: first.name } } : { screenId: "bots" });
   };
+
+  if (!open) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface0, alignItems: "center", justifyContent: "center" }}>
+        <Button colors={colors} variant="default" icon="Plus" label="New bot" onPress={() => setOpen(true)} />
+      </View>
+    );
+  }
 
   return (
     <MenuProvider colors={colors} compact={layout.compact}>

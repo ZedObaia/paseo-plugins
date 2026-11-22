@@ -81,7 +81,7 @@ export default function contribute(client: PluginClientContext) {
   for (const id of ["bot-library", "bot-library-item"]) {
     client.addScreen({ id, title: (params) => params.title || "Skills & Tools", Component: (props) => <LibraryPage key={JSON.stringify(props.params)} {...props} openScreen={openScreen} /> });
   }
-  client.addScreen({ id: "bot-new", title: "New bot", Component: (props) => <NewBotPage {...props} openScreen={openScreen} /> });
+  client.addScreen({ id: "bot-new", title: "New bot", Component: (props) => <NewBotPage key={props.params.n ?? ""} {...props} openScreen={openScreen} /> });
   client.addWorkspacePanel({ id: "bot", title: "Bot", icon: "Bot", locations: ["explorer"], Component: (props) => <BotTab {...props} openScreen={openScreen} /> });
   client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: PaseoBotsSidebar });
   const backToBots = () => client.openScreen({ screenId: BOTS_SCREEN });
@@ -116,7 +116,7 @@ export default function contribute(client: PluginClientContext) {
     keywords: ["bot", "create", "assistant"],
     context: "global",
     onSelect({ openScreen }) {
-      openScreen({ screenId: "bot-new" });
+      openScreen({ screenId: "bot-new", params: { n: String(Date.now()) } });
     },
   });
   // Bot chats opened in Paseo's own agent view get the same /learn and skill cards.

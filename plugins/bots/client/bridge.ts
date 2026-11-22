@@ -46,7 +46,7 @@ export function registerBridge(client: Pick<PluginClientContext, "rpc" | "openSc
     openChat: (botId, chatId) => open(botId, (title) => chatScreen({ botId, chatId }, title)),
     // The bot's home with its message box focused; the chat opens in Paseo once you send.
     newChat: (botId) => open(botId, (title) => ({ screenId: "bot-home", params: { botId, title, compose: String(Date.now()) } })),
-    newBot: () => client.openScreen({ screenId: "bot-new" }),
+    newBot: () => client.openScreen({ screenId: "bot-new", params: { n: String(Date.now()) } }),
     Avatar,
   };
   const registry = globalThis as Registry;
