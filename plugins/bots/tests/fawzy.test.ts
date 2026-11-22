@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBridge, type FawzyBridge } from "../client/bridge";
+import { controlLabel, modeIcon, providerIcon } from "../client/home/composer-controls";
 import { headerStatus, recentActivity, splitChats } from "../client/home/model";
 import { newRoutineEntries, presetRoutine, ROUTINE_PRESETS } from "../client/home/presets";
 import { BotSchema, type BotSettingsValues } from "../shared/bot";
@@ -162,6 +163,19 @@ describe("bot page", () => {
       chat("c", "1", { archivedAt: "x", metadata: status("Archived", "2026-11-03T00:00:00Z") }),
       chat("d", "1", { metadata: { [BOT_STATUS_METADATA]: { text: 5 } } }),
     ])).toEqual({ text: "Newer", progress: 0.5 });
+  });
+
+  it("labels the new chat's controls as Paseo's composer does", () => {
+    expect(controlLabel({ id: "xhigh", label: "xhigh" }, true)).toBe("Extra high");
+    expect(controlLabel({ id: "medium", label: "Medium" }, true)).toBe("Medium");
+    expect(controlLabel({ id: "bypassPermissions" })).toBe("Bypass permissions");
+    expect(controlLabel({ id: "auto", label: "Auto mode" })).toBe("Auto mode");
+    expect(modeIcon("ShieldCheck")).toBe("ShieldCheck");
+    expect(modeIcon("Rocket")).toBe("Bot");
+    expect(modeIcon(undefined)).toBe("Bot");
+    expect(providerIcon("claude")).toMatchObject({ svg: expect.stringContaining("<svg") });
+    expect(providerIcon("acme", "<svg/>")).toEqual({ svg: "<svg/>" });
+    expect(providerIcon("acme")).toBe("Bot");
   });
 
   it("lists recent activity from chats and memory changes, newest first", () => {

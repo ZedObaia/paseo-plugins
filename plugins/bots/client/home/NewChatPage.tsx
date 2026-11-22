@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
+import type { PluginIcon, PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,19 +21,21 @@ import { nativeTokens, useHover } from "../native";
 import { CardNote } from "../panel/controls";
 import { ui, useTypeScale } from "../typography";
 import { measureAnchor, MenuProvider, useMenu } from "../ui/Menu";
-import { useTooltipTheme } from "../ui/Tooltip";
+import { tooltip, useTooltipTheme } from "../ui/Tooltip";
 import { useBotSettings } from "../useBotSettings";
 import { chatOpener, type BotPageActions } from "./BotHome";
+import { controlLabel, modeIcon, providerIcon } from "./composer-controls";
 
 type Colors = PluginTheme["colors"];
 interface Choice {
   model: string | null;
   thinking: string | null;
+  mode: string | null;
 }
 
 /**
  * A new chat with a bot (screen "bot-new-chat", param botId), laid out like Paseo's: the bot in the
- * middle and the composer, with attachments and this chat's model and thinking, below. The first
+ * middle and the composer, with attachments and this chat's model, thinking and mode, below. The first
  * message starts the chat the way the Bots screen's draft does, then it opens in Paseo's own view
  * with the bot's panel in the right sidebar.
  */
@@ -72,7 +74,7 @@ function NewChat({ theme, layout, host: localHost, params, navigation, openScree
   }
 
   const library = settings.values.library ?? EMPTY_LIBRARY;
-  const picked: Choice = choice ?? { model: bot.model, thinking: bot.thinkingOptionId };
+  const picked: Choice = choice ?? { model: bot.model, thinking: bot.thinkingOptionId, mode: bot.modeId };
   // The Bots screen's draft start (BotsSurface SelectedChat.start), with this chat's model.
   const start = async (message: OutgoingMessage) => {
     const api = host.api;
@@ -86,7 +88,7 @@ function NewChat({ theme, layout, host: localHost, params, navigation, openScree
       const agentId = newUuid();
       const plugin = host.isLocal ? await mountServers({ botId: bot.id, agentId }) : {};
       const id = await startBotChat(api, {
-        bot: { ...bot, model: picked.model, thinkingOptionId: picked.thinking },
+        bot: { ...bot, model: picked.model, thinkingOptionId: picked.thinking, modeId: picked.mode },
         library,
         ...(host.isLocal ? { agentId } : {}),
         plugin,
@@ -125,29 +127,39 @@ function NewChat({ theme, layout, host: localHost, params, navigation, openScree
         layout={layout}
         keyboardOpen={keyboardHeight > 0}
         onStart={start}
-        toolbar={<ModelPills colors={colors} host={host} bot={bot} choice={picked} onChoice={setChoice} />}
+        toolbar={<ChatControls colors={colors} host={host} bot={bot} compact={layout.compact} choice={picked} onChoice={setChoice} />}
       />
     </View>
   );
 }
 
-/** Paseo's model and thinking pills, for this chat; the bot's own setting until you pick. */
-function ModelPills({ colors, host, bot, choice, onChoice }: { colors: Colors; host: BotHost; bot: Bot; choice: Choice; onChoice(choice: Choice): void }) {
+/**
+ * Paseo's composer controls for this chat: model (the provider's mark), thinking and mode, each the
+ * bot's setting until you pick. Borderless round triggers with a muted glyph and label; on phones
+ * thinking and mode show their glyph only and no control has a caret (agent-controls/control.tsx).
+ */
+function ChatControls({ colors, host, bot, compact, choice, onChoice }: { colors: Colors; host: BotHost; bot: Bot; compact: boolean; choice: Choice; onChoice(choice: Choice): void }) {
   const menu = useMenu();
   const providers = useProviders(host);
-  const models = (providers.data?.find((entry) => entry.provider === bot.provider)?.models ?? []).filter((model) => model.isSelectable !== false);
-  if (!models.length) return null;
+  const provider = providers.data?.find((entry) => entry.provider === bot.provider);
+  const models = (provider?.models ?? []).filter((model) => model.isSelectable !== false);
+  if (!provider || !models.length) return null;
   const modelId = choice.model ?? defaultModelId(models);
   const model = models.find((entry) => entry.id === modelId);
   const thinking = model?.thinkingOptions ?? [];
   const thinkingId = choice.thinking ?? model?.defaultThinkingOptionId ?? null;
-  const thinkingLabel = thinking.find((option) => option.id === thinkingId)?.label ?? "Default";
+  const thinkingOption = thinking.find((option) => option.id === thinkingId);
+  const modes = provider.modes ?? [];
+  const modeId = choice.mode ?? provider.defaultModeId ?? null;
+  const mode = modes.find((entry) => entry.id === modeId);
   return (
     <>
-      <Pill
+      <Control
         colors={colors}
-        icon="Sparkles"
+        compact={compact}
+        icon={providerIcon(bot.provider, provider.iconSvg)}
         label={model?.label ?? modelId ?? "Model"}
+        accessibilityLabel={`Model: ${model?.label ?? modelId ?? "default"}`}
         onPress={(anchor) =>
           menu.open({
             anchor,
@@ -157,23 +169,45 @@ function ModelPills({ colors, host, bot, choice, onChoice }: { colors: Colors; h
             entries: models.map((entry) => ({
               label: entry.label,
               selected: entry.id === modelId,
-              onSelect: () => onChoice({ model: entry.id, thinking: entry.thinkingOptions?.some((option) => option.id === choice.thinking) ? choice.thinking : null }),
+              onSelect: () => onChoice({ ...choice, model: entry.id, thinking: entry.thinkingOptions?.some((option) => option.id === choice.thinking) ? choice.thinking : null }),
             })),
           })
         }
       />
       {thinking.length ? (
-        <Pill
+        <Control
           colors={colors}
+          compact={compact}
           icon="Brain"
-          label={thinkingLabel}
+          label={thinkingOption ? controlLabel(thinkingOption, true) : "Default"}
+          iconOnly={compact}
+          accessibilityLabel={`Thinking: ${thinkingOption ? controlLabel(thinkingOption, true) : "default"}`}
           onPress={(anchor) =>
             menu.open({
               anchor,
               align: "start",
               width: 200,
               title: "Thinking",
-              entries: thinking.map((option) => ({ label: option.label, selected: option.id === thinkingId, onSelect: () => onChoice({ ...choice, model: modelId, thinking: option.id }) })),
+              entries: thinking.map((option) => ({ label: controlLabel(option, true), selected: option.id === thinkingId, onSelect: () => onChoice({ ...choice, model: modelId, thinking: option.id }) })),
+            })
+          }
+        />
+      ) : null}
+      {modes.length ? (
+        <Control
+          colors={colors}
+          compact={compact}
+          icon={modeIcon(mode?.icon)}
+          label={mode ? controlLabel(mode) : "Mode"}
+          iconOnly={compact}
+          accessibilityLabel={`Mode: ${mode ? controlLabel(mode) : "default"}`}
+          onPress={(anchor) =>
+            menu.open({
+              anchor,
+              align: "start",
+              width: 240,
+              title: "Mode",
+              entries: modes.map((entry) => ({ label: controlLabel(entry), icon: modeIcon(entry.icon), selected: entry.id === modeId, onSelect: () => onChoice({ ...choice, mode: entry.id }) })),
             })
           }
         />
@@ -182,22 +216,44 @@ function ModelPills({ colors, host, bot, choice, onChoice }: { colors: Colors; h
   );
 }
 
-function Pill({ colors, icon, label, onPress }: { colors: Colors; icon: string; label: string; onPress(anchor: { x: number; y: number; width: number; height: number }): void }) {
+/** One toolbar trigger: 28 tall, 8 a side (28 round when icon only), 4 between glyph, label and caret. */
+function Control({ colors, compact, icon, label, iconOnly = false, accessibilityLabel, onPress }: { colors: Colors; compact: boolean; icon: PluginIcon; label: string; iconOnly?: boolean; accessibilityLabel: string; onPress(anchor: { x: number; y: number; width: number; height: number }): void }) {
   const ref = useRef<View>(null);
   const { hovered, hoverProps } = useHover();
-  const tint = hovered ? colors.foreground : colors.foregroundMuted;
+  const glyph = compact ? 20 : 16;
   return (
     <Pressable
       ref={ref}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel}
+      {...tooltip(accessibilityLabel)}
       onPress={() => void measureAnchor(ref).then((anchor) => anchor && onPress(anchor))}
       {...hoverProps}
-      style={{ height: 28, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, borderRadius: 8, backgroundColor: hovered ? colors.surface2 : "transparent" }}
+      style={({ pressed }) => ({
+        height: 28,
+        minWidth: 28,
+        flexShrink: iconOnly ? 0 : 1,
+        marginLeft: 4,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        paddingHorizontal: iconOnly ? 0 : 8,
+        borderRadius: 999,
+        backgroundColor: hovered || pressed ? colors.surface2 : "transparent",
+      })}
     >
-      <Icon name={icon} size={14} color={tint} />
-      <Text numberOfLines={1} style={{ fontSize: ui(13), color: tint }}>{label}</Text>
-      <Icon name="ChevronDown" size={12} color={tint} />
+      <Icon icon={icon} size={glyph} color={colors.foregroundMuted} />
+      {iconOnly ? null : (
+        <Text numberOfLines={1} style={{ minWidth: 0, flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted }}>
+          {label}
+        </Text>
+      )}
+      {compact ? null : (
+        <View style={{ transform: [{ translateY: 1 }] }}>
+          <Icon name="ChevronDown" size={14} color={colors.foregroundMuted} />
+        </View>
+      )}
     </Pressable>
   );
 }
