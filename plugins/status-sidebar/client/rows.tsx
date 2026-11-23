@@ -25,16 +25,20 @@ import { Icon, Modal, TextInput, copyText, useToast } from "@getpaseo/plugin/cli
 import type { PluginWorkspaceSnapshot } from "@getpaseo/plugin";
 import type { z } from "zod";
 import type { preferences } from "../shared/preferences";
-import { useHoverCard } from "./hover-card";
-import { Menu, MenuItem, type PressState } from "./menu";
+import { useReorder, type DropSide } from "./drag";
+import { closeHoverCard, useHoverCard } from "./hover-card";
+import { Menu, MenuItem, MenuSubTrigger, type PressState } from "./menu";
 import { ProgressLine, useAgentWork, type AgentWork } from "./progress";
 import {
+  ROW_COLORS,
   STATUS_LABELS,
   archiveRisks,
   compactTimeAgo,
   formatDiffCount,
   identityColor,
   limitGroup,
+  mix,
+  moveKey,
   projectInitial,
   type Bucket,
 } from "./model";
@@ -165,21 +169,41 @@ export function GroupRows({
   keep,
   withProject = false,
   indented = false,
+  order,
 }: {
   refs: readonly WorkspaceRef[];
   limit: number;
   keep?(ref: WorkspaceRef): boolean;
   withProject?: boolean;
   indented?: boolean;
+  /** The `orders` list its rows are dragged in; none, no dragging. */
+  order?: string;
 }) {
-  const { view } = useSidebar();
+  const { view, update } = useSidebar();
   const [expanded, setExpanded] = useState(false);
   const open = view.active.workspace?.key;
   const group = limitGroup(refs, { limit, expanded, keep, isOpen: (ref) => ref.key === open });
+  const move = (from: string, to: string, after: boolean) => {
+    if (!order) return;
+    const keys = moveKey(
+      refs.map((ref) => ref.key),
+      from,
+      to,
+      after,
+    );
+    update((current) => ({ ...current, orders: { ...current.orders, [order]: keys } }));
+  };
   return (
     <>
       {[...(group.leading ? [group.leading] : []), ...group.visible].map((ref) => (
-        <WorkspaceRow key={ref.key} reference={ref} withProject={withProject} indented={indented} />
+        <WorkspaceRow
+          key={ref.key}
+          reference={ref}
+          withProject={withProject}
+          indented={indented}
+          order={order}
+          onMove={move}
+        />
       ))}
       {group.canToggle ? (
         <PlainRow
@@ -474,19 +498,33 @@ function Button({ label, danger = false, onPress }: { label: string; danger?: bo
   );
 }
 
+/** Where a dragged row would land. */
+export function DropLine({ side }: { side: DropSide | null }) {
+  const { s } = useUi();
+  if (!side) return null;
+  return <View pointerEvents="none" style={[s.dropLine, side === "before" ? s.dropBefore : s.dropAfter]} />;
+}
+
+/** How far a colored row's fill leans toward its color. */
+const TINT = 0.2;
+
 function WorkspaceRow({
   reference,
   withProject = false,
   indented = false,
+  order,
+  onMove,
 }: {
   reference: WorkspaceRef;
   /** Pinned and status rows lead with their project's square; project rows with their status. */
   withProject?: boolean;
   /** Status rows sit on their group header's label rail. */
   indented?: boolean;
+  order?: string;
+  onMove(from: string, to: string, after: boolean): void;
 }) {
   const { s, c, p, touch, iconSm } = useUi();
-  const { view, prefs, projectOf, hostBadges, devices, mainCheckouts } = useSidebar();
+  const { view, prefs, update, projectOf, hostBadges, devices, mainCheckouts } = useSidebar();
   const paseo = usePaseo();
   const toast = useToast();
   const workspace = useWorkspace(reference);
@@ -506,6 +544,14 @@ function WorkspaceRow({
     reference,
     workspace: workspace ?? null,
     work: workspace?.indicator === "running" ? work : null,
+  });
+  const drop = useReorder({
+    source: row,
+    list: order ?? "",
+    key: reference.key,
+    enabled: Boolean(order && workspace && !renaming),
+    onStart: closeHoverCard,
+    onMove,
   });
   if (!workspace) return null;
 
@@ -536,6 +582,17 @@ function WorkspaceRow({
   // Touch keeps the kebab in the slot for good and drops the trailing content for it.
   const showKebab = rowHovered || touch || menuOpen;
   const showContent = trailing !== null && !touch;
+  const colorName = prefs.rowColors[reference.key];
+  const tint = colorName ? ROW_COLORS[colorName] : undefined;
+  const fill = (pressed: boolean) => {
+    const base = pressed ? c.surface2 : selected ? p.selected : rowHovered ? p.hover : p.sidebar;
+    return tint ? mix(base, tint, TINT) : base;
+  };
+  const setColor = (name: string | null) =>
+    update((current) => {
+      const { [reference.key]: _, ...rowColors } = current.rowColors;
+      return { ...current, rowColors: name ? { ...rowColors, [reference.key]: name } : rowColors };
+    });
 
   const copy = (text: string, done: string) =>
     copyText(text).then(
@@ -605,13 +662,11 @@ function WorkspaceRow({
         style={({ pressed }) => [
           s.workspaceRow,
           indented && s.indented,
-          rowHovered && s.hover,
-          selected && s.selected,
-          pressed && s.pressed,
+          (tint || rowHovered || selected || pressed) && { backgroundColor: fill(pressed) },
         ]}
       >
         {({ pressed }) => {
-          const backdrop = pressed ? c.surface2 : selected ? p.selected : rowHovered ? p.hover : p.sidebar;
+          const backdrop = fill(pressed);
           return (
             <View style={s.workspaceMain}>
               {withProject ? (
@@ -716,8 +771,34 @@ function WorkspaceRow({
           );
         }}
       </Pressable>
+      <DropLine side={drop} />
       {menuOpen ? (
-        <Menu anchor={kebab} open onClose={() => setMenuOpen(false)} width={260} title="Workspace actions">
+        <Menu
+          anchor={kebab}
+          open
+          onClose={() => setMenuOpen(false)}
+          width={260}
+          title="Workspace actions"
+          pages={{
+            color: {
+              title: "Color",
+              content: (
+                <>
+                  <MenuItem label="None" selected={!tint} onSelect={() => setColor(null)} />
+                  {Object.entries(ROW_COLORS).map(([name, color]) => (
+                    <MenuItem
+                      key={name}
+                      label={name}
+                      leading={<View style={[s.swatch, { backgroundColor: color }]} />}
+                      selected={colorName === name}
+                      onSelect={() => setColor(name)}
+                    />
+                  ))}
+                </>
+              ),
+            },
+          }}
+        >
           <MenuItem icon="Copy" label="Copy path" onSelect={() => copy(workspace.directory, "Path copied")} />
           {workspace.projectKind === "git" && branch ? (
             <MenuItem
@@ -732,6 +813,7 @@ function WorkspaceRow({
             label={pinned ? "Unpin" : "Pin to top"}
             onSelect={() => handle.setPinned(!pinned).catch((error: unknown) => toast.error(message(error)))}
           />
+          <MenuSubTrigger id="color" icon="Palette" label="Color" value={tint ? colorName : undefined} />
           {main ? null : (
             <MenuItem
               icon="Archive"
@@ -780,7 +862,7 @@ function RunningProgress({
 
 /** Touch layouts rename in a modal (workspace-rename/internal/modal.tsx). */
 function RenameModal({ initial, onDone }: { initial: string; onDone(text: string | null): void }) {
-  const { s, c } = useUi();
+  const { s, c, f } = useUi();
   const [text, setText] = useState(initial);
   return (
     <Dialog title="Rename workspace" onClose={() => onDone(null)}>
@@ -793,7 +875,7 @@ function RenameModal({ initial, onDone }: { initial: string; onDone(text: string
         autoCorrect={false}
         style={{
           color: c.foreground,
-          fontSize: 14,
+          fontSize: f(14),
           borderWidth: 1,
           borderColor: c.border,
           borderRadius: 8,

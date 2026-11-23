@@ -16,11 +16,12 @@ import {
   type WorkspaceRef,
 } from "@getpaseo/plugin/client";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
-import type { PluginWorkspaceSnapshot } from "@getpaseo/plugin";
+import type { PluginProjectSnapshot, PluginWorkspaceSnapshot } from "@getpaseo/plugin";
 import { preferences } from "../shared/preferences";
 import { AttentionList, Bell, useAttention } from "./attention";
 import { BotsSection, NewBotButton, useBots } from "./bots";
 import { useRunningDevices } from "./devices";
+import { useReorder } from "./drag";
 import { closeHoverCard } from "./hover-card";
 import {
   Menu,
@@ -43,11 +44,14 @@ import {
   mainCheckoutGroup,
   missingMainCheckouts,
   labelKey,
+  manualOrder,
+  moveKey,
   placementId,
   type Bucket,
   type ProjectPlacement,
 } from "./model";
 import {
+  DropLine,
   GroupRows,
   PlainRow,
   ProjectIcon,
@@ -58,7 +62,7 @@ import {
   type Prefs,
   type Sidebar,
 } from "./rows";
-import { UiContext, createUi, useUi } from "./styles";
+import { UiContext, createUi, useInterfaceSize, useUi } from "./styles";
 
 const DEFAULTS = preferences.schema.parse({});
 
@@ -172,7 +176,11 @@ function toggle(list: readonly string[], key: string): string[] {
 
 export function DefaultSidebar(view: PluginSidebarViewProps) {
   const touch = view.layout.compact || view.layout.platform !== "web";
-  const ui = useMemo(() => createUi(view.theme.colors, touch), [view.theme.colors, touch]);
+  const fontSize = useInterfaceSize();
+  const ui = useMemo(
+    () => createUi(view.theme.colors, touch, fontSize),
+    [view.theme.colors, touch, fontSize],
+  );
   return (
     <UiContext.Provider value={ui}>
       <SidebarList view={view} />
@@ -190,8 +198,11 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   const viewKey = useViewKeys(hosts);
   const projects = useProjects({
     hosts: scope,
-    orderBy: (a, b) =>
-      compareProjectNames(a.displayName, b.displayName) || viewKey(a).localeCompare(viewKey(b)),
+    orderBy: manualOrder<PluginProjectSnapshot>(
+      prefs.orders.projects,
+      viewKey,
+      (a, b) => compareProjectNames(a.displayName, b.displayName) || viewKey(a).localeCompare(viewKey(b)),
+    ),
     groupBy: (project) => ({ key: viewKey(project), title: project.displayName }),
   });
   const keyByProject = useMemo(
@@ -222,7 +233,11 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   const pinned = useWorkspaces({
     hosts: scope,
     where: (workspace) => workspace.pinnedAt !== null && visible(workspace),
-    orderBy: ["pinnedAt", "desc"],
+    orderBy: manualOrder(
+      prefs.orders.pinned,
+      (workspace: PluginWorkspaceSnapshot) => workspace.ref.key,
+      (a, b) => (b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? ""),
+    ),
   });
   // A project stays while it has a visible workspace, or has none at all and no label filter.
   const shown = projects.filter(
@@ -328,7 +343,7 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
                 {/* Pinned workspaces lead the section, where Paseo gives them a "Pinned" section of their own. */}
                 {pinned.length ? (
                   <View style={s.blockExpanded}>
-                    <GroupRows refs={pinned} limit={20} withProject />
+                    <GroupRows refs={pinned} limit={20} withProject order="pinned" />
                   </View>
                 ) : null}
                 {filterEmpty ? (
@@ -336,7 +351,9 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
                 ) : status ? (
                   <StatusGroups />
                 ) : shown.length ? (
-                  shown.map((group) => <ProjectBlock key={group.key} group={group} />)
+                  shown.map((group) => (
+                    <ProjectBlock key={group.key} group={group} order={shown.map((entry) => entry.key)} />
+                  ))
                 ) : (
                   <EmptyCard title="No projects yet" description="Add a project to get started" />
                 )}
@@ -349,13 +366,37 @@ function SidebarList({ view }: { view: PluginSidebarViewProps }) {
   );
 }
 
-function ProjectBlock({ group }: { group: Group<ProjectRef> }) {
+/** A project and its workspaces; its header drags it among `order`, the projects shown. */
+function ProjectBlock({ group, order }: { group: Group<ProjectRef>; order: readonly string[] }) {
   const { s } = useUi();
-  const { view, prefs, scope, projectOf, visible, mainCheckouts, toggleCollapsed } = useSidebar();
+  const { view, prefs, update, scope, projectOf, visible, mainCheckouts, toggleCollapsed } = useSidebar();
   const name = group.title ?? group.key;
   const where = (workspace: PluginWorkspaceSnapshot) =>
     projectOf(workspace) === group.key && workspace.pinnedAt === null && visible(workspace);
-  const refs = useWorkspaces({ hosts: scope, where, orderBy: compareProjectRows(prefs.sort, mainCheckouts) });
+  const refs = useWorkspaces({
+    hosts: scope,
+    where,
+    orderBy: manualOrder(
+      prefs.orders[group.key],
+      (workspace: PluginWorkspaceSnapshot) => workspace.ref.key,
+      compareProjectRows(prefs.sort, mainCheckouts),
+    ),
+  });
+  const block = useRef<View>(null);
+  const header = useRef<View>(null);
+  const drop = useReorder({
+    source: header,
+    target: block,
+    list: "projects",
+    key: group.key,
+    enabled: true,
+    onStart: closeHoverCard,
+    onMove: (from, to, after) =>
+      update((current) => ({
+        ...current,
+        orders: { ...current.orders, projects: moveKey(order, from, to, after) },
+      })),
+  });
   const byStatus = useWorkspaces({ hosts: scope, where, groupBy: (workspace) => workspace.indicator });
   const active = new Set(
     byStatus.filter((entry) => entry.key !== "done").flatMap((entry) => entry.items.map((ref) => ref.key)),
@@ -364,7 +405,7 @@ function ProjectBlock({ group }: { group: Group<ProjectRef> }) {
   const target = group.items.find((ref) => ref.hostId === view.active.workspace?.hostId) ?? group.items[0];
   const create = () => view.navigation.openProject(target);
   const children = collapsed ? null : refs.length ? (
-    <GroupRows refs={refs} limit={7} keep={(ref) => active.has(ref.key)} />
+    <GroupRows refs={refs} limit={7} keep={(ref) => active.has(ref.key)} order={group.key} />
   ) : (
     <PlainRow
       icon="Plus"
@@ -375,16 +416,23 @@ function ProjectBlock({ group }: { group: Group<ProjectRef> }) {
     />
   );
   return (
-    <View accessibilityLabel={name} style={children ? s.blockExpanded : undefined}>
-      <ProjectRow
-        name={name}
-        viewKey={group.key}
-        collapsed={collapsed}
-        status={collapsed ? aggregateStatus(byStatus.map((entry) => entry.key as Bucket)) : null}
-        onToggle={() => toggleCollapsed(group.key)}
-        onNew={create}
-      />
+    <View
+      ref={block}
+      accessibilityLabel={name}
+      style={[{ position: "relative" }, children && s.blockExpanded]}
+    >
+      <View ref={header} collapsable={false}>
+        <ProjectRow
+          name={name}
+          viewKey={group.key}
+          collapsed={collapsed}
+          status={collapsed ? aggregateStatus(byStatus.map((entry) => entry.key as Bucket)) : null}
+          onToggle={() => toggleCollapsed(group.key)}
+          onNew={create}
+        />
+      </View>
       {children}
+      <DropLine side={drop} />
     </View>
   );
 }

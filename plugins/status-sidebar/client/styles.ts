@@ -2,10 +2,10 @@
 // sidebar-workspace-row-content.tsx, sidebar-status-list.tsx, sidebar-section-header.tsx,
 // ui/menu/*) with the theme tokens resolved. Touch sizes follow styles/density.ts.
 
-import { createContext, useContext } from "react";
-import { StyleSheet } from "react-native";
+import { createContext, useContext, useEffect, useState } from "react";
+import { Platform, StyleSheet } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { paletteFor, type Palette } from "./model";
+import { BASE_FONT_SIZE, interfaceSize, paletteFor, type Palette } from "./model";
 
 export interface Ui {
   c: PluginTheme["colors"];
@@ -16,7 +16,31 @@ export interface Ui {
   iconMd: number;
   iconSm: number;
   iconXs: number;
+  /** A font size at the app's interface size. */
+  f(size: number): number;
   s: ReturnType<typeof createStyles>;
+}
+
+const readInterfaceSize = () =>
+  interfaceSize(
+    (globalThis as { localStorage?: { getItem(key: string): string | null } }).localStorage?.getItem(
+      "@paseo:app-settings",
+    ),
+  );
+
+/**
+ * The app's Interface size, which plugins aren't handed. On the web and desktop the app keeps it in
+ * localStorage; native apps keep it where plugins can't read, so they stay at the default.
+ */
+export function useInterfaceSize(): number {
+  const [size, setSize] = useState(readInterfaceSize);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    // ponytail: polls, since the app's own writes fire no storage event in its window.
+    const timer = setInterval(() => setSize(readInterfaceSize()), 2000);
+    return () => clearInterval(timer);
+  }, []);
+  return size;
 }
 
 export const UiContext = createContext<Ui | null>(null);
@@ -27,9 +51,11 @@ export function useUi(): Ui {
   return ui;
 }
 
-export function createUi(c: PluginTheme["colors"], touch: boolean): Ui {
+export function createUi(c: PluginTheme["colors"], touch: boolean, fontSize = BASE_FONT_SIZE): Ui {
   const p = paletteFor(c);
   const iconMd = touch ? 20 : 16;
+  // theme/fonts.ts: each size scales by the interface size and rounds; line heights stay.
+  const f = (size: number) => Math.round((size * fontSize) / BASE_FONT_SIZE);
   return {
     c,
     p,
@@ -37,15 +63,22 @@ export function createUi(c: PluginTheme["colors"], touch: boolean): Ui {
     iconMd,
     iconSm: touch ? 18 : 14,
     iconXs: touch ? 14 : 12,
-    s: createStyles(c, p, touch, iconMd),
+    f,
+    s: createStyles(c, p, touch, iconMd, f),
   };
 }
 
-function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, iconMd: number) {
+function createStyles(
+  c: PluginTheme["colors"],
+  p: Palette,
+  touch: boolean,
+  iconMd: number,
+  f: (size: number) => number,
+) {
   const rowHeight = touch ? 44 : 36;
   const centered = { alignItems: "center", justifyContent: "center" } as const;
-  const label = { fontSize: 14, fontWeight: "400", minWidth: 0, flexShrink: 1 } as const;
-  const meta = { fontSize: 12, lineHeight: 16 } as const;
+  const label = { fontSize: f(14), fontWeight: "400", minWidth: 0, flexShrink: 1 } as const;
+  const meta = { fontSize: f(12), lineHeight: 16 } as const;
   return StyleSheet.create({
     fill: { flex: 1 },
     listContent: { paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 },
@@ -64,7 +97,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       paddingRight: 4,
     },
     headerToggle: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 28, marginLeft: -2 },
-    headerTitle: { color: c.foregroundMuted, fontSize: 12, fontWeight: "normal" },
+    headerTitle: { color: c.foregroundMuted, fontSize: f(12), fontWeight: "normal" },
     headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
     displayTrigger: { width: 28, height: 28, borderRadius: 6, ...centered },
 
@@ -93,7 +126,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       borderRadius: Math.round(iconMd * 0.25),
       ...centered,
     },
-    projectIconText: { color: "#ffffff", fontSize: 9 },
+    projectIconText: { color: "#ffffff", fontSize: f(9) },
     badge: {
       position: "absolute",
       right: -4,
@@ -135,7 +168,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
     title: {
       color: c.foreground,
-      fontSize: 14,
+      fontSize: f(14),
       fontWeight: "400",
       lineHeight: 20,
       opacity: 0.76,
@@ -148,7 +181,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     // basis on the web, and overriding `flex` alone collapsed it to nothing).
     titleInline: {
       color: c.foreground,
-      fontSize: 14,
+      fontSize: f(14),
       fontWeight: "400",
       lineHeight: 20,
       opacity: 0.76,
@@ -164,7 +197,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       justifyContent: "center",
       flexShrink: 0,
     },
-    mainPillText: { color: c.foregroundMuted, fontSize: 10, lineHeight: 12 },
+    mainPillText: { color: c.foregroundMuted, fontSize: f(10), lineHeight: 12 },
     titleEditor: {
       height: 20,
       flex: 1,
@@ -173,7 +206,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       padding: 0,
       borderWidth: 0,
       color: c.foreground,
-      fontSize: 14,
+      fontSize: f(14),
       borderRadius: 2,
       outlineStyle: "solid",
       outlineWidth: 1,
@@ -184,10 +217,10 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     pinMark: { height: 20, justifyContent: "center" },
     trailingSlot: { position: "relative", minHeight: 20, flexShrink: 0, alignItems: "flex-end" },
     trailingReserved: { minWidth: 18 },
-    timestamp: { height: 20, lineHeight: 20, color: p.extraMuted, fontSize: 12, flexShrink: 0 },
+    timestamp: { height: 20, lineHeight: 20, color: p.extraMuted, fontSize: f(12), flexShrink: 0 },
     diff: { flexDirection: "row", alignItems: "center", height: 20, gap: 4, flexShrink: 0 },
-    additions: { fontSize: 12, color: c.statusSuccess },
-    deletions: { fontSize: 12, color: c.statusDanger },
+    additions: { fontSize: f(12), color: c.statusSuccess },
+    deletions: { fontSize: f(12), color: c.statusDanger },
     overlay: { position: "absolute", top: 0, right: 0, flexDirection: "row", alignItems: "flex-start" },
     archiveButton: { width: 18, height: 18, marginRight: 8, borderRadius: 4, ...centered },
     kebab: {
@@ -258,7 +291,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     },
     botChevron: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center" },
     botLeading: { position: "relative", width: 20, height: 20, flexShrink: 0 },
-    botName: { color: c.foreground, fontSize: 14, lineHeight: 20, opacity: 0.86, flex: 1, minWidth: 0 },
+    botName: { color: c.foreground, fontSize: f(14), lineHeight: 20, opacity: 0.86, flex: 1, minWidth: 0 },
     bell: {
       height: 28,
       paddingHorizontal: 8,
@@ -276,7 +309,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       alignItems: "center",
       justifyContent: "center",
     },
-    bellBadgeText: { color: c.accentForeground, fontSize: 11, fontWeight: "600", lineHeight: 16 },
+    bellBadgeText: { color: c.accentForeground, fontSize: f(11), fontWeight: "600", lineHeight: 16 },
     emptyNote: { ...meta, color: p.extraMuted, paddingHorizontal: 8, paddingVertical: 12 },
 
     // workspace-hover-card.tsx
@@ -292,7 +325,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       shadowOpacity: 0.2,
       shadowRadius: 8,
     },
-    hoverCardTitle: { color: c.foreground, fontSize: 14, paddingHorizontal: 12, paddingBottom: 8 },
+    hoverCardTitle: { color: c.foreground, fontSize: f(14), paddingHorizontal: 12, paddingBottom: 8 },
     hoverCardRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -300,8 +333,8 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       paddingHorizontal: 12,
       paddingBottom: 8,
     },
-    hoverCardText: { flex: 1, minWidth: 0, color: c.foregroundMuted, fontSize: 12 },
-    hoverCardLabel: { color: c.foregroundMuted, fontSize: 12 },
+    hoverCardText: { flex: 1, minWidth: 0, color: c.foregroundMuted, fontSize: f(12) },
+    hoverCardLabel: { color: c.foregroundMuted, fontSize: f(12) },
     hoverCardSeparator: { height: 1, backgroundColor: c.border },
     hoverCardChecks: {
       flexDirection: "row",
@@ -323,12 +356,12 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
     hoverCardTasksHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
     hoverCardTask: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
     hoverCardTaskIcon: { height: 16, justifyContent: "center" },
-    hoverCardTaskText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
-    hoverCardMore: { color: c.foregroundMuted, fontSize: 11, paddingLeft: 18 },
+    hoverCardTaskText: { flex: 1, minWidth: 0, fontSize: f(12), lineHeight: 16 },
+    hoverCardMore: { color: c.foregroundMuted, fontSize: f(11), paddingLeft: 18 },
 
     card: { marginTop: 12, padding: 16, borderWidth: 1, borderColor: c.border, borderRadius: 8, gap: 4 },
-    cardTitle: { color: c.foreground, fontSize: 12 },
-    cardText: { color: c.foregroundMuted, fontSize: 12 },
+    cardTitle: { color: c.foreground, fontSize: f(12) },
+    cardText: { color: c.foregroundMuted, fontSize: f(12) },
     cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
     button: {
       minHeight: touch ? 32 : 28,
@@ -340,7 +373,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       ...centered,
     },
     buttonDanger: { borderColor: c.statusDanger, backgroundColor: c.statusDanger },
-    buttonText: { color: c.foreground, fontSize: 12 },
+    buttonText: { color: c.foreground, fontSize: f(12) },
 
     menuSurface: {
       position: "absolute",
@@ -375,7 +408,7 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       padding: 0,
       borderWidth: 0,
       color: c.foreground,
-      fontSize: 13,
+      fontSize: f(13),
       outlineWidth: 0,
     },
     menuEmpty: { ...meta, color: c.foregroundMuted, paddingHorizontal: 12, paddingVertical: 8 },
@@ -391,13 +424,26 @@ function createStyles(c: PluginTheme["colors"], p: Palette, touch: boolean, icon
       borderColor: "transparent",
       borderRadius: 6,
     },
-    menuItemText: { fontSize: 14, lineHeight: 18, color: c.foreground },
+    menuItemText: { fontSize: f(14), lineHeight: 18, color: c.foreground },
     menuLeading: { width: 16, ...centered },
     menuTrailing: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6 },
-    menuValue: { fontSize: 14, color: c.foregroundMuted, flexShrink: 1 },
+    menuValue: { fontSize: f(14), color: c.foregroundMuted, flexShrink: 1 },
     menuIndicator: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.accent },
     menuSeparator: { height: 1, marginVertical: 4, backgroundColor: p.borderAccent },
     hostDot: { width: 8, height: 8, borderRadius: 4 },
+    swatch: { width: 10, height: 10, borderRadius: 5 },
+    // Where a dragged row lands: a line across the top or bottom edge of the row under it.
+    dropLine: {
+      position: "absolute",
+      left: 4,
+      right: 4,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: c.accent,
+      zIndex: 1,
+    },
+    dropBefore: { top: -2 },
+    dropAfter: { bottom: -2 },
     backdrop: { ...StyleSheet.absoluteFillObject },
     sheetBody: { padding: 0, gap: 0, paddingBottom: 8 },
   });

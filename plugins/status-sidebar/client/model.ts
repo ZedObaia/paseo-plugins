@@ -229,6 +229,71 @@ export function compareStatusRows(a: StatusFacts, b: StatusFacts): number {
   );
 }
 
+/** `keys` with `from` moved just before or after `to`; unchanged when either is missing. */
+export function moveKey(keys: readonly string[], from: string, to: string, after: boolean): string[] {
+  if (from === to || !keys.includes(from) || !keys.includes(to)) return [...keys];
+  const rest = keys.filter((key) => key !== from);
+  rest.splice(rest.indexOf(to) + (after ? 1 : 0), 0, from);
+  return rest;
+}
+
+/** A dragged order first, then `rest`. Keys it doesn't name yet (new ones) lead, in `rest`'s order. */
+export function manualOrder<T>(
+  order: readonly string[] | undefined,
+  key: (item: T) => string,
+  rest: (a: T, b: T) => number,
+): (a: T, b: T) => number {
+  if (!order?.length) return rest;
+  const rank = new Map(order.map((entry, index) => [entry, index]));
+  return (a, b) => (rank.get(key(a)) ?? -1) - (rank.get(key(b)) ?? -1) || rest(a, b);
+}
+
+/** Row tints a workspace can carry, by stored name. */
+export const ROW_COLORS: Record<string, string> = {
+  Red: "#e5484d",
+  Orange: "#f76b15",
+  Yellow: "#e2b300",
+  Green: "#30a46c",
+  Teal: "#12a594",
+  Blue: "#3e8ef7",
+  Purple: "#8e4ec6",
+  Pink: "#d6409f",
+};
+
+/** `base` blended toward `tint` by `amount`, as an opaque color (the row's scrim and badges need one). */
+export function mix(base: string, tint: string, amount: number): string {
+  const [a, b] = [rgb(base), rgb(tint)];
+  return `#${a
+    .map((channel, i) =>
+      Math.round((channel + (b[i] - channel) * amount) * 255)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+/** The size Paseo's theme is built around; every font size scales by interface size / this. */
+export const BASE_FONT_SIZE = 14;
+
+/**
+ * Settings → Appearance → Interface size from the app's stored settings (`@paseo:app-settings`),
+ * as settings/app-settings.ts reads it: uiBaseFontSize (10-21), else the older uiFontSize (base 16).
+ */
+export function interfaceSize(raw: string | null | undefined): number {
+  try {
+    const settings = raw ? (JSON.parse(raw) as { uiBaseFontSize?: unknown; uiFontSize?: unknown }) : {};
+    const size =
+      typeof settings.uiBaseFontSize === "number"
+        ? settings.uiBaseFontSize
+        : typeof settings.uiFontSize === "number"
+          ? Math.round((BASE_FONT_SIZE * settings.uiFontSize) / 16)
+          : BASE_FONT_SIZE;
+    return Math.min(21, Math.max(10, Math.floor(size)));
+  } catch {
+    return BASE_FONT_SIZE;
+  }
+}
+
 /** Theme tokens the app reads that plugins don't receive. */
 export interface Palette {
   sidebar: string;

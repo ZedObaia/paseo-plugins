@@ -25,5 +25,9 @@ export const preferences = defineSettings({
     labelFilters: z.array(z.string()).default([]),
     /** Project view keys, "status:<bucket>", "bot:<id>", and "section:bots" / "section:workspaces". */
     collapsed: z.array(z.string()).default([]),
+    /** Orders set by dragging, by list: "projects", "pinned", or a project view key for its workspaces. */
+    orders: z.record(z.string(), z.array(z.string())).default({}),
+    /** Row tints by workspace key, as ROW_COLORS names. */
+    rowColors: z.record(z.string(), z.string()).default({}),
   }),
 });

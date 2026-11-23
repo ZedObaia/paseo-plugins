@@ -14,7 +14,11 @@ import {
   countChecks,
   formatDiffCount,
   identityColor,
+  interfaceSize,
   limitGroup,
+  manualOrder,
+  mix,
+  moveKey,
   paletteFor,
   projectInitial,
   placementId,
@@ -353,4 +357,31 @@ test("a reported plan: its steps as tasks and the line counted against them", ()
     fraction: 1 / 3,
   });
   assert.deepEqual(countedProgress({ text: "Busy", fraction: 0.4 }, []), { text: "Busy", fraction: 0.4 });
+});
+
+test("moveKey puts the dragged key before or after the target", () => {
+  assert.deepEqual(moveKey(["a", "b", "c", "d"], "a", "c", false), ["b", "a", "c", "d"]);
+  assert.deepEqual(moveKey(["a", "b", "c", "d"], "a", "c", true), ["b", "c", "a", "d"]);
+  assert.deepEqual(moveKey(["a", "b", "c", "d"], "d", "a", false), ["d", "a", "b", "c"]);
+  assert.deepEqual(moveKey(["a", "b"], "x", "a", false), ["a", "b"]);
+});
+
+test("manualOrder follows the dragged order and puts new keys first", () => {
+  const byName = (a: string, b: string) => a.localeCompare(b);
+  const sorted = ["a", "b", "c", "new"].sort(manualOrder(["c", "a", "b"], (key) => key, byName));
+  assert.deepEqual(sorted, ["new", "c", "a", "b"]);
+  assert.deepEqual(["b", "a"].sort(manualOrder(undefined, (key: string) => key, byName)), ["a", "b"]);
+});
+
+test("interfaceSize reads the app's Interface size, its older form, or the default", () => {
+  assert.equal(interfaceSize(JSON.stringify({ uiBaseFontSize: 10, uiFontSize: 16 })), 10);
+  assert.equal(interfaceSize(JSON.stringify({ uiFontSize: 12 })), 11);
+  assert.equal(interfaceSize(JSON.stringify({ uiBaseFontSize: 99 })), 21);
+  assert.equal(interfaceSize(null), 14);
+  assert.equal(interfaceSize("not json"), 14);
+});
+
+test("mix blends toward the tint", () => {
+  assert.equal(mix("#000000", "#ffffff", 0.5), "#808080");
+  assert.equal(mix("#1a1918", "#e5484d", 0), "#1a1918");
 });
